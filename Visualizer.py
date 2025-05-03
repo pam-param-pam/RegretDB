@@ -1,17 +1,20 @@
 import json
 
+from Table import Table
+
 
 def load_tables_from_json(json_data):
     """
     Converts the JSON structure into a memory structure.
     """
-    tables = {}
+    tables = []
 
     for table_name, table_data in json_data["tables"].items():
-        columns = [col["name"] for col in table_data["metadata"]["columns"]]
+        columns = table_data["metadata"]["columns"]
         rows = [tuple(row.values()) for row in table_data["data"]]
+        table = Table(table_name, columns, rows)
 
-        tables[table_name] = [columns] + rows
+        tables.append(table)
 
     return tables
 
@@ -50,5 +53,6 @@ with open(file_path, 'r') as file:
     json_data = json.load(file)
 
 tables = load_tables_from_json(json_data)
-print(tables)
-visualize_table(tables)
+for table in tables:
+    table.visualize_metadata()
+

@@ -9,10 +9,10 @@ class Column:
 
 
 class Table:
-    def __init__(self, name, metadata, data):
+    def __init__(self, name, columns, data):
         self.name = name
-        self.columns = [Column(col['name'], col['type'], col['constraints']) for col in metadata['columns']]
-        self.data = data  # List of dicts representing rows
+        self.columns = [Column(col['name'], col['type'], col['constraints']) for col in columns]
+        self.data = data
 
     def get_column_names(self):
         return [col.name for col in self.columns]
@@ -22,6 +22,30 @@ class Table:
         headers = tuple(self.get_column_names())
         rows = [tuple(row[col] for col in headers) for row in self.data]
         return [headers] + rows
+
+    def visualize_metadata(self):
+        print(f"\nMetadata for Table: {self.name}")
+
+        headers = ["Column Name", "Type", "Constraints"]
+        rows = [(col.name, col.type, ', '.join(col.constraints)) for col in self.columns]
+
+        col_widths = [len(h) for h in headers]
+        for row in rows:
+            for i, val in enumerate(row):
+                col_widths[i] = max(col_widths[i], len(str(val)))
+
+        def divider():
+            return '+' + '+'.join(['-' * (w + 2) for w in col_widths]) + '+'
+
+        def format_row(row_data):
+            return '| ' + ' | '.join(f"{str(val).ljust(col_widths[i])}" for i, val in enumerate(row_data)) + ' |'
+
+        print(divider())
+        print(format_row(headers))
+        print(divider())
+        for row in rows:
+            print(format_row(row))
+        print(divider())
 
     def __repr__(self):
         return f"<Table name={self.name} columns={self.get_column_names()} rows={len(self.data)}>"

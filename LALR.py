@@ -1,4 +1,3 @@
-import math
 import re
 
 from Nodes import *
@@ -42,9 +41,11 @@ def tokenize(sql):
                 'INSERT', 'INTO', 'VALUES',
                 'UPDATE', 'SET',
                 'DELETE',
-                'CREATE', 'TABLE',
-                'DROP',
+                'CREATE', 'TABLE', 'PRIMARY', 'KEY', 'UNIQUE'
+                                                     'DROP',
                 'ALTER',
+                'AND', 'OR', 'IS', 'NOT', 'NULL'
+                                          'INTEGER', 'TEXT'
             }
             if val in keywords:
                 tokens.append(Token(val, val, pos))
@@ -84,12 +85,8 @@ class Parser:
     def get_pretty_error(self):
         try:
             offset = self.tokens[self.pos].offset
+            adjust = 0
 
-            if self.pos + 1 < len(self.tokens):
-                next_word_length = self.tokens[self.pos + 1].length
-            else:
-                next_word_length = self.tokens[self.pos].length
-            adjust = math.ceil(next_word_length / 2)
         except IndexError:
             offset = len(self.sql)
             adjust = 1
@@ -126,10 +123,10 @@ class Parser:
     def parse_identifier(self):
         """Parses an identifier or qualified identifier like table.column"""
         ident = self.expect('IDENT').value
-        while self.peek().type == 'DOT':
-            self.advance()  # skip the dot
-            right = self.expect('IDENT').value
-            ident = f"{ident}.{right}"
+        if self.peek().type == 'DOT':
+            self.advance()
+            second = self.expect('IDENT').value
+            return f"{ident}.{second}"
         return ident
 
     def parse_identifier_list(self):
@@ -149,7 +146,7 @@ class Parser:
             self.advance()
         else:
             raise SyntaxError(f"Expected literal value, found {token}\n{self.get_pretty_error()}")
-        while self.peek().type == ',':
+        while self.peek().type == 'COMMA':
             self.advance()
             token = self.peek()
             if token.type in ('NUMBER', 'STRING'):
@@ -161,45 +158,92 @@ class Parser:
 
     # Expression parsing for WHERE clauses (handles AND/OR and comparisons)
     def parse_expression(self):
-        left = self.parse_term()
+        return self.parse_or()
+
+    def parse_or(self):
+        left = self.parse_and()
         while self.peek().type == 'OR':
             self.advance()
-            right = self.parse_term()
+            right = self.parse_and()
             left = ('OR', left, right)
         return left
 
-    def parse_term(self):
-        left = self.parse_factor()
+    def parse_and(self):
+        left = self.parse_comparison()
         while self.peek().type == 'AND':
             self.advance()
-            right = self.parse_factor()
+            right = self.parse_comparison()
             left = ('AND', left, right)
         return left
 
-    def parse_factor(self):
-        token = self.peek()
-        if token.type == '(':
+    def parse_comparison(self):
+        if self.peek().type == 'LPAREN':
             self.advance()
             expr = self.parse_expression()
-            self.expect(')')
+            self.expect('RPAREN')
             return expr
-        # parse comparison: <identifier> <operator> <value|identifier>
+
         left = self.parse_identifier()
-        op_token = self.peek()
-        if op_token.type == 'OP':
-            op = op_token.value
+        peeked = self.peek()
+
+        # Handle IS [NOT] NULL
+        if peeked.type == 'IS':
             self.advance()
-        else:
-            raise SyntaxError(f"Expected comparison operator, found {op_token}\n{self.get_pretty_error()}")
+            if self.peek().type == 'NOT':
+                self.advance()
+                self.expect('NULL')
+                return 'IS NOT NULL', left
+            else:
+                self.expect('NULL')
+                return 'IS NULL', left
+
+        if peeked.type != 'OP':
+            raise SyntaxError(f"Expected comparison operator, found {peeked}")
+        op = peeked.value
+        self.advance()
+
         token = self.peek()
-        if token.type == 'IDENT':
-            right = self.parse_identifier()
-        elif token.type in ('NUMBER', 'STRING'):
+        if token.type in ('NUMBER', 'STRING'):
             right = token.value
             self.advance()
+        elif token.type == 'IDENT':
+            right = self.parse_identifier()
         else:
-            raise SyntaxError(f"Expected identifier or literal after operator, found {token}\n{self.get_pretty_error()}")
+            raise SyntaxError(f"Expected identifier or literal after operator, found {token}")
+
         return op, left, right
+
+    def parse_constraint(self):
+        """Parse column constraints (e.g., NOT NULL, PRIMARY KEY, etc.)"""
+        token = self.peek()
+        if token.type == 'NOT':
+            self.advance()
+            self.expect('NULL')
+            return 'NOT NULL'
+        elif token.type == 'PRIMARY':
+            self.advance()
+            self.expect('KEY')
+            return 'PRIMARY KEY'
+        elif token.type == 'FOREIGN':
+            self.advance()
+            self.expect('KEY')
+            return 'FOREIGN KEY'
+        elif token.type == 'UNIQUE':
+            self.advance()
+            return 'UNIQUE'
+        elif token.type == 'CHECK':
+            self.advance()
+            self.expect('(')
+            condition = self.parse_expression()
+            self.expect(')')
+            return f'CHECK({condition})'
+        elif token.type == 'DEFAULT':
+            self.advance()
+            default_value = self.peek().value
+            self.advance()
+            return f'DEFAULT {default_value}'
+        else:
+            raise SyntaxError(f"Unexpected constraint: {token}")
 
     def parse_order_by(self):
         self.expect('ORDER')
@@ -217,6 +261,28 @@ class Parser:
                 break
             self.advance()  # skip comma
         return orderings
+
+    def parse_assignments(self):
+        assignments = []
+
+        while True:
+            col = self.parse_identifier()
+            self.expect('=')
+            token = self.peek()
+            if token.type in ('NUMBER', 'STRING'):
+                val = token.value
+                self.advance()
+            elif token.type == 'IDENT':
+                val = self.parse_identifier()
+            else:
+                raise SyntaxError(f"Expected value in assignment, found {token}\n{self.get_pretty_error()}")
+            assignments.append((col, val))
+
+            if self.peek().type != 'COMMA':
+                break
+            self.advance()  # skip comma
+
+        return assignments
 
     # ===========================================
     # ------------ Statement parsers ------------
@@ -257,52 +323,31 @@ class Parser:
         return SelectStmt(columns, tables, joins, where_expr, order_by)
 
     def parse_insert(self):
+        """INSERT INTO <table> (<columns>) VALUES (<values>)"""
         self.expect('INSERT')
-        if self.peek().type == 'INTO':
-            self.advance()
+        self.expect('INTO')
+
         table = self.parse_identifier()
-        columns = None
-        if self.peek().type == '(':
-            self.advance()
-            columns = self.parse_identifier_list()
-            self.expect(')')
+
+        self.expect('(')
+        columns = self.parse_identifier_list()
+        self.expect(')')
+
         self.expect('VALUES')
+
         self.expect('(')
         values = self.parse_value_list()
         self.expect(')')
+
         return InsertStmt(table, columns, values)
 
     def parse_update(self):
+        """UPDATE <table> SET <column>=<value> [, <column>=<value> ...] [WHERE <condition>]"""
         self.expect('UPDATE')
         table = self.parse_identifier()
         self.expect('SET')
-        assignments = []
-        # parse first assignment col=val
-        col = self.parse_identifier()
-        self.expect('=')
-        token = self.peek()
-        if token.type in ('NUMBER', 'STRING'):
-            val = token.value
-            self.advance()
-        elif token.type == 'IDENT':
-            val = self.parse_identifier()
-        else:
-            raise SyntaxError(f"Expected value in SET, found {token}\n{self.get_pretty_error()}")
-        assignments.append((col, val))
-        # parse additional assignments
-        while self.peek().type == ',':
-            self.advance()
-            col = self.parse_identifier()
-            self.expect('=')
-            token = self.peek()
-            if token.type in ('NUMBER', 'STRING'):
-                val = token.value
-                self.advance()
-            elif token.type == 'IDENT':
-                val = self.parse_identifier()
-            else:
-                raise SyntaxError(f"Expected value in SET, found {token}\n{self.get_pretty_error()}")
-            assignments.append((col, val))
+        assignments = self.parse_assignments()
+
         where_expr = None
         if self.peek().type == 'WHERE':
             self.advance()
@@ -310,6 +355,7 @@ class Parser:
         return UpdateStmt(table, assignments, where_expr)
 
     def parse_delete(self):
+        """DELETE FROM <table> [WHERE <condition>]"""
         self.expect('DELETE')
         if self.peek().type == 'FROM':
             self.advance()
@@ -321,39 +367,41 @@ class Parser:
         return DeleteStmt(table, where_expr)
 
     def parse_create(self):
+        """CREATE TABLE <table_name> (<column_name1> <data_type1> <constraints>, <column_name2> <data_type2> <constraints> ...)"""
+
         self.expect('CREATE')
-        if self.peek().type == 'TABLE':
-            self.advance()
+        self.expect('TABLE')
         table = self.parse_identifier()
         self.expect('(')
+
         columns = []
-        # first column definition
-        col_name = self.parse_identifier()
-        col_type = self.parse_identifier()
-        if self.peek().type == '(':
-            self.advance()
-            size = self.expect('NUMBER').value
-            self.expect(')')
-            col_type += f"({size})"
-        columns.append((col_name, col_type))
-        # additional columns
-        while self.peek().type == ',':
-            self.advance()
+        while self.peek().type != ')':
             col_name = self.parse_identifier()
             col_type = self.parse_identifier()
-            if self.peek().type == '(':
+
+            if self.peek().type == 'LPAREN':
                 self.advance()
                 size = self.expect('NUMBER').value
-                self.expect(')')
+                self.expect('RPAREN')
                 col_type += f"({size})"
-            columns.append((col_name, col_type))
+
+            constraints = []
+            while self.peek().type in ('NOT', 'PRIMARY', 'FOREIGN', 'UNIQUE', 'CHECK', 'DEFAULT'):
+                constraints.append(self.parse_constraint())
+
+            columns.append((col_name, col_type, constraints))
+
+            if self.peek().type == ',':
+                self.advance()
+
         self.expect(')')
         return CreateStmt(table, columns)
 
     def parse_drop(self):
+        # drop index not supported
+        """DROP TABLE <table_name>"""
         self.expect('DROP')
-        if self.peek().type == 'TABLE':
-            self.advance()
+        self.expect('TABLE')
         table = self.parse_identifier()
         return DropStmt(table)
 
@@ -386,7 +434,11 @@ class Parser:
             return AlterStmt(table, action, col_name)
 
 
-sql = "SELECT users.id, orders.amount FROM users JOIN orders ON users.id = orders.user_id WHERE orders.amount > 100 ORDER BY orders.amount ASC, orders.name DESC"
-
+# sql = "SELECT users.id, orders.amount FROM users JOIN orders ON users.id = orders.user_id WHERE orders.amount > 100 ORDER BY orders.amount ASC, orders.name DESC"
+# sql = "INSERT INTO Customers (CustomerName, ContactName, Address, City, PostalCode, Country) VALUES ('Cardinal', 'Tom B. Erichsen', 'Skagen 21', 'Stavanger', '4006', 'Norway')"
+# sql = "UPDATE users SET name = 'Alice Smith', email = 'alice.smith@example.com' WHERE id is not null AND name = 1"
+# sql = "DELETE FROM users WHERE age < 18"
+sql = "CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL UNIQUE, age INTEGER)"
+# sql = "DROP TABLE users;"
 ast = Parser(sql).parse()
 print(ast)
