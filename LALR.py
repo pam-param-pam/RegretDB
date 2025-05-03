@@ -1,107 +1,8 @@
 import math
 import re
 
-from enum import Enum, auto
-
-
-# class TokenType(Enum):
-#     NUMBER = auto()
-#     STRING = auto()
-#     IDENT = auto()
-#     OP = auto()
-#     STAR = auto()
-#     COMMA = auto()
-#     LPAREN = auto()
-#     RPAREN = auto()
-#     SEMI = auto()
-#     SKIP = auto()
-#     MISMATCH = auto()
-#     EOF = auto()
-
-
-# Token class for lexical tokens
-class Token:
-    def __init__(self, type, value, offset):
-        self.type = type  # e.g. 'IDENT', 'NUMBER', 'STRING' or a keyword like 'SELECT'
-        self.value = value
-        self.length = len(value)
-        self.offset = offset
-
-    def __repr__(self):
-        return f"Token({self.type}, {self.value!r})"
-
-
-# AST node classes for different SQL statements
-class ASTNode:
-    pass
-
-
-class SelectStmt:
-    def __init__(self, columns, base_table, joins, where_expr, order_by):
-        self.columns = columns
-        self.base_table = base_table
-        self.joins = joins  # List of (table, condition)
-        self.where_expr = where_expr
-        self.order_by = order_by
-
-    def __repr__(self):
-        return f"SelectStmt(columns={self.columns}, joins={self.joins}, tables={self.base_table}, where={self.where_expr}, order_by={self.order_by})"
-
-
-class InsertStmt(ASTNode):
-    def __init__(self, table, columns, values):
-        self.table = table
-        self.columns = columns  # list of column names (or None)
-        self.values = values  # list of values
-
-    def __repr__(self):
-        return f"InsertStmt(table={self.table}, columns={self.columns}, values={self.values})"
-
-
-class UpdateStmt(ASTNode):
-    def __init__(self, table, assignments, where):
-        self.table = table
-        self.assignments = assignments  # list of (column, value) pairs
-        self.where = where
-
-    def __repr__(self):
-        return f"UpdateStmt(table={self.table}, assignments={self.assignments}, where={self.where})"
-
-
-class DeleteStmt(ASTNode):
-    def __init__(self, table, where):
-        self.table = table
-        self.where = where
-
-    def __repr__(self):
-        return f"DeleteStmt(table={self.table}, where={self.where})"
-
-
-class CreateStmt(ASTNode):
-    def __init__(self, table, columns):
-        self.table = table
-        self.columns = columns  # list of (name, type) pairs
-
-    def __repr__(self):
-        return f"CreateStmt(table={self.table}, columns={self.columns})"
-
-
-class DropStmt(ASTNode):
-    def __init__(self, table):
-        self.table = table
-
-    def __repr__(self):
-        return f"DropStmt(table={self.table})"
-
-
-class AlterStmt(ASTNode):
-    def __init__(self, table, action, column):
-        self.table = table  # table name
-        self.action = action  # 'ADD' or 'DROP'
-        self.column = column  # column name or (name, type)
-
-    def __repr__(self):
-        return f"AlterStmt(table={self.table}, action={self.action}, column={self.column})"
+from Nodes import *
+from Token import Token
 
 
 # Tokenizer function
@@ -137,7 +38,7 @@ def tokenize(sql):
             val = lexeme.upper()
             # Recognize SQL keywords (we store the type as the uppercase keyword)
             keywords = {
-                'SELECT', 'FROM', 'WHERE', 'ORDER', 'BY', 'ASC', 'DESC',
+                'SELECT', 'FROM', 'WHERE', 'JOIN', 'ON', 'ORDER', 'BY', 'ASC', 'DESC',
                 'INSERT', 'INTO', 'VALUES',
                 'UPDATE', 'SET',
                 'DELETE',
@@ -181,13 +82,17 @@ class Parser:
             raise SyntaxError(f"Expected {type_or_value}, found {token}\n{self.get_pretty_error()}")
 
     def get_pretty_error(self):
-        offset = self.tokens[self.pos].offset
+        try:
+            offset = self.tokens[self.pos].offset
 
-        if self.pos + 1 < len(self.tokens):
-            next_word_length = self.tokens[self.pos + 1].length
-        else:
-            next_word_length = self.tokens[self.pos].length
-        adjust = math.ceil(next_word_length / 2)
+            if self.pos + 1 < len(self.tokens):
+                next_word_length = self.tokens[self.pos + 1].length
+            else:
+                next_word_length = self.tokens[self.pos].length
+            adjust = math.ceil(next_word_length / 2)
+        except IndexError:
+            offset = len(self.sql)
+            adjust = 1
 
         return self.sql + "\n" + (offset + adjust) * " " + "^"
 
@@ -301,12 +206,13 @@ class Parser:
         self.expect('BY')
         orderings = []
         while True:
-            column = self.expect('IDENT').value
-            direction = 'ASC'  # default direction
-            if self.peek().type in ('ASC', 'DESC'):
-                direction = self.peek().type
-                self.advance()
-            orderings.append((column, direction))
+            columns = self.parse_identifier_list()
+            peeked = self.peek()
+            if peeked.type not in ('ASC', 'DESC'):
+                raise SyntaxError(f"Expected 'ASC' or 'DESC', found {self.peek().type}\n{self.get_pretty_error()}")
+            direction = peeked.type
+            self.advance()
+            orderings.append((columns, direction))
             if self.peek().type != 'COMMA':
                 break
             self.advance()  # skip comma
@@ -326,7 +232,10 @@ class Parser:
             columns = self.parse_identifier_list()
 
         self.expect('FROM')
-        base_table = self.parse_identifier_list()
+        tables = [self.parse_identifier()]
+        while self.peek().type == 'COMMA':
+            self.advance()
+            tables.append(self.parse_identifier())
 
         joins = []
         while self.peek().type == 'JOIN':
@@ -343,11 +252,9 @@ class Parser:
 
         order_by = None
         if self.peek().type == 'ORDER':
-            self.advance()
-            self.expect('BY')
             order_by = self.parse_order_by()
 
-        return SelectStmt(columns, base_table, joins, where_expr, order_by)
+        return SelectStmt(columns, tables, joins, where_expr, order_by)
 
     def parse_insert(self):
         self.expect('INSERT')
@@ -479,7 +386,7 @@ class Parser:
             return AlterStmt(table, action, col_name)
 
 
-sql = "SELECT users.id, orders.amount FROM users JOIN orders ON users.id = orders.user_id WHERE orders.amount > 100 ORDER BY orders.amount DESC"
+sql = "SELECT users.id, orders.amount FROM users JOIN orders ON users.id = orders.user_id WHERE orders.amount > 100 ORDER BY orders.amount ASC, orders.name DESC"
 
 ast = Parser(sql).parse()
 print(ast)

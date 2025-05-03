@@ -1,4 +1,25 @@
+import json
+
+
+def load_tables_from_json(json_data):
+    """
+    Converts the JSON structure into a memory structure.
+    """
+    tables = {}
+
+    for table_name, table_data in json_data["tables"].items():
+        columns = [col["name"] for col in table_data["metadata"]["columns"]]
+        rows = [tuple(row.values()) for row in table_data["data"]]
+
+        tables[table_name] = [columns] + rows
+
+    return tables
+
+
 def visualize_table(tables):
+    """
+    Displays each table in a human-readable format.
+    """
     for table_name, table in tables.items():
         columns = table[0]
         rows = table[1:]
@@ -23,23 +44,11 @@ def visualize_table(tables):
         print(divider())
 
 
-# Example tables
-tables = {
-    "players": [
-        ("id", "name", "age"),
-        (1, "Pam", 19),
-        (2, "Guard", 20),
-        (3, "Player738", 17)
-    ],
-    "clans": [
-        ("id", "name"),
-        (1, "_Elite"),
-        (2, "Entity"),
-        (3, "")
-    ]
-}
+file_path = "tables.json"
 
+with open(file_path, 'r') as file:
+    json_data = json.load(file)
+
+tables = load_tables_from_json(json_data)
+print(tables)
 visualize_table(tables)
-
-
-
