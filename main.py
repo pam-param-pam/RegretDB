@@ -1,5 +1,7 @@
 from collections import defaultdict
 
+from icecream import ic
+
 
 class ASTNode:
     def __init__(self, node_type, value=None, children=None):
@@ -11,8 +13,8 @@ class ASTNode:
         return f"{self.type}: {self.value}" if self.value else self.type
 
 class Tokenizer:
-    def __init__(self, sql):
-        self.tokens = self._tokenize(sql)
+    def __init__(self, sql: str):
+        self.tokens = self._tokenize(sql.strip())
         print(f"Tokens: {self.tokens}")
         self.pos = 0
 
@@ -21,7 +23,6 @@ class Tokenizer:
         word = ''
         i = 0
         n = len(sql)
-
         while i < n:
             ch = sql[i]
 
@@ -55,12 +56,16 @@ class Tokenizer:
                 word = ''
             else:
                 word += ch
+
+            # checking if word isn't EOF
+            if word:
+                if word.upper() == 'EOF':
+                    error_string = sql + "\n" + i * " " + "^"
+                    raise SyntaxError(f"Keyword 'EOF' is reserved:\n{error_string}")
+
             i += 1
 
         if word:
-            if word.upper() == 'EOF':
-                error_string = sql + "\n" + len(sql) * " " + "^"
-                raise SyntaxError(f"Keyword 'EOF' is reserved:\n{error_string}")
             tokens.append(word)
         tokens.append('EOF')
         return tokens
@@ -83,12 +88,14 @@ class LL1Parser:
         self.stack = ['START']
         self.table = self.build_table()
         self.parsed = ''
-        self.trace = defaultdict(list)  # list of (top, token, type)
+        self.trace = defaultdict(list)
         self.ast = None  # Will hold the root AST node
         self.current_node = None  # For building the AST
         self.tree = defaultdict(list)
+
     def build_table(self):
         return {
+            # ALL SUPPORTED STATEMENT BEGINNINGS
             'START': {
                 'SELECT': ['SELECT_STMT'],
                 'INSERT': ['INSERT_STMT'],
@@ -97,8 +104,13 @@ class LL1Parser:
                 'CREATE': ['CREATE_STMT'],
                 'DROP': ['DROP_STMT'],
                 'ALTER': ['ALTER_STMT']
-
             },
+            # SELECT STATEMENT
+            'SELECT_STMT': {
+                'SELECT': ['SELECT', 'COLUMNS', 'FROM', 'TABLES', 'JOIN_CLAUSE', 'WHERE_CLAUSE', 'ORDER_CLAUSE']
+            },
+
+
             'ALTER_STMT': {
                 'ALTER': ['ALTER', 'TABLE', 'ID', 'ALTER_ACTION']
             },
@@ -172,9 +184,7 @@ class LL1Parser:
                 'EOF': []
 
             },
-            'SELECT_STMT': {
-                'SELECT': ['SELECT', 'COLUMNS', 'FROM', 'TABLES', 'JOIN_CLAUSE', 'WHERE_CLAUSE', 'ORDER_CLAUSE']
-            },
+
             'INSERT_STMT': {
                 'INSERT': ['INSERT', 'INTO', 'TABLES', 'VALUES', '(', 'VALS', ')']
             },
@@ -184,10 +194,12 @@ class LL1Parser:
             'DELETE_STMT': {
                 'DELETE': ['DELETE', 'FROM', 'TABLES', 'WHERE_CLAUSE']
             },
+            # UTILITY
+            # columns
             'COLUMNS': {
                 '*': ['*'],
                 'identifier': ['ID', 'COLUMNS_TAIL'],
-                'SELECT': ['SUBQUERY', 'COLUMNS_TAIL']  # For nested SELECT
+                # 'SELECT': ['SUBQUERY', 'COLUMNS_TAIL']  # For nested SELECT
             },
             'COLUMNS_TAIL': {
                 ',': [',', 'COLUMN_ITEM', 'COLUMNS_TAIL'],
@@ -195,8 +207,10 @@ class LL1Parser:
             },
             'COLUMN_ITEM': {
                 'identifier': ['ID'],
-                'SELECT': ['SUBQUERY']
+                # 'SELECT': ['SUBQUERY'] # For nested SELECT
             },
+
+            # tables
             'TABLES': {
                 'identifier': ['ID', 'TABLES_TAIL'],
                 # 'SELECT': ['SUBQUERY', 'TABLES_TAIL']  # For derived tables
@@ -217,6 +231,8 @@ class LL1Parser:
                 'identifier': ['ID'],
                 'SELECT': ['SUBQUERY']
             },
+
+            # joins
             'JOIN_CLAUSE': {
                 'JOIN': ['JOIN', 'ID', 'ON', 'CONDITION', 'JOIN_CLAUSE'],
                 'INNER': ['INNER', 'JOIN', 'ID', 'ON', 'CONDITION', 'JOIN_CLAUSE'],
@@ -227,6 +243,8 @@ class LL1Parser:
                 'ORDER': [],  # ε
                 'EOF': []  # ε
             },
+
+            # where
             'WHERE_CLAUSE': {
                 'WHERE': ['WHERE', 'CONDITION'],
                 'ORDER': [],  # ε
@@ -238,6 +256,8 @@ class LL1Parser:
                 'ORDER': [],  # ε
                 'EOF': []  # ε
             },
+
+            # order
             'ORDER_CLAUSE': {
                 'ORDER': ['ORDER', 'BY', 'ORDER_COLUMNS'],
                 'EOF': []  # ε
@@ -255,6 +275,8 @@ class LL1Parser:
                 ',': [',', 'ID', 'ORDER_DIRECTION', 'ORDER_COLUMNS_TAIL'],
                 'EOF': []  # ε
             },
+
+            #
             'ASSIGNMENTS': {
                 'identifier': ['ID', '=', 'VAL', 'ASSIGNMENTS_TAIL']
             },
@@ -290,9 +312,9 @@ class LL1Parser:
                 'OR': ['OR'],
                 'EOF': []  # ε
             },
-            'SUBQUERY': {
-                '(': ['(', 'SELECT_STMT', ')']
-            },
+            # 'SUBQUERY': {
+            #     '(': ['(', 'SELECT_STMT', ')']
+            # },
             'ID': {
                 'identifier': ['identifier']
             },
@@ -389,6 +411,11 @@ class LL1Parser:
             current = self.tokenizer.current()
             token_type = self.classify_token(current)
             self.trace[current].append(top)
+            # ic(top)
+            # ic(current)
+            # ic(token_type)
+
+            # terminal token
             if top == token_type:
                 self.tree[top].append(current)
                 self.tokenizer.advance()
@@ -427,16 +454,16 @@ test_queries = [
     # "SELECT * FROM products",
     # "DROP TABLE Shippers",
     # "SELECT * FROM products WHERE category = 'ala AND WHERE id = 2137' AND name = 1",
-    # "ALTER TABLE users ADD COLUMN email VARCHAR(255) NOT NULL",
+    "ALTER TABLE users ADD COLUMN email VARCHAR(255) NOT NULL PRIMARY KEY",
     # "ALTER TABLE products DROP COLUMN old_price",
     # "ALTER TABLE employees RENAME COLUMN phone TO mobile",
     # "ALTER TABLE orders MODIFY COLUMN status VARCHAR(20)",
-    # "SELECT Orders.OrderID, Customers.CustomerName, Orders.OrderDate FROM Orders INNER JOIN Customers ON Orders.CustomerID=Customers.CustomerID",
-    # "UPDATE Clans SET ClanName = '_Elite', ID = 1 WHERE ClanId = -2137",
-    # "SELECT users.name, admins.id FROM users, admins WHERE id = 1",  # hard to catch
-    # "SELECT * FROM orders LEFT JOIN customers ON orders.customer_id = customers.id",
-    # "SELECT name, id FROM users WHERE name = 'ala' AND id > 21 ORDER BY name DESC",
-    "CREATE TABLE users (id INT PRIMARY KEY, name VARCHAR(255) NOT NULL, email VARCHAR(255) UNIQUE, created_at DATETIME)",
+    # # "SELECT Orders.OrderID, Customers.CustomerName, Orders.OrderDate FROM Orders INNER JOIN Customers ON Orders.CustomerID=Customers.CustomerID",
+    # # "UPDATE Clans SET ClanName = '_Elite', ID = 1 WHERE ClanId = -2137",
+    # # "SELECT users.name, admins.id FROM users, admins WHERE id = 1",  # hard to catch
+    # # "SELECT * FROM orders LEFT JOIN customers ON orders.customer_id = customers.id",
+    # # "SELECT name, id FROM users WHERE name = 'ala' AND id > 21 ORDER BY name DESC",
+    # "CREATE TABLE users (id INT PRIMARY KEY, name VARCHAR(255) NOT NULL, email VARCHAR(255) UNIQUE, created_at DATETIME)",
     # "SELECT * FROM products WHERE category = 'ala'",
     # "CREATE TABLE users (id INT, name VARCHAR(255))",
 
