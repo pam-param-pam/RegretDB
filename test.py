@@ -1,5 +1,5 @@
 # Utility function for evaluating conditions in WHERE clause
-from Nodes import SelectStmt
+from ASTNodes import SelectStmt
 from Table import Table
 
 
@@ -55,7 +55,7 @@ def apply_order_by(rows, order_by, table_columns):
 # Function to execute SELECT statement
 def execute_select_statement(tables, select_stmt):
     # Step 1: Get the base table and column names
-    base_table = tables[select_stmt.base_table]
+    base_table = tables[select_stmt.tables]
     base_table_columns = base_table.get_column_names()  # Get columns from base table
 
     # Step 2: Join the tables (in this case, we join 'users' with 'orders')
@@ -109,8 +109,7 @@ tables = {
 # Example Select Statement
 select_stmt = SelectStmt(
     columns=['users.id', 'orders.amount'],
-    base_table='users',
-    joins=[('orders', ('=', 'users.id', 'orders.user_id'))],
+    tables='users',
     where_expr=('AND', ('>', 'orders.amount', '100'), ('=', 'ala', 'name')),
     order_by=[(['orders.amount'], 'ASC'), (['orders.name'], 'DESC')]
 )

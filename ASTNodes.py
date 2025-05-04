@@ -11,19 +11,29 @@ class ASTNode(ABC):
     def verify(self):
         raise NotImplementedError("verify() not implemented")
 
+    def check_columns(self, columns):
+        pass
+
+    def check_tables(self, tables):
+        pass
+
+    def check_type(self):
+        pass
+
 class SelectStmt(ASTNode):
-    def __init__(self, columns, base_table, where_expr, order_by):
+    def __init__(self, columns, tables, where_expr, order_by):
         self.columns = columns
-        self.base_table = base_table
+        self.tables = tables
         self.where_expr = where_expr
         self.order_by = order_by
         super().__init__()
 
     def __repr__(self):
-        return f"SelectStmt(columns={self.columns}, tables={self.base_table}, where={self.where_expr}, order_by={self.order_by})"
+        return f"SelectStmt(columns={self.columns}, tables={self.tables}, where={self.where_expr}, order_by={self.order_by})"
 
     def verify(self):
-        pass
+        self.check_columns(self.columns)
+        self.check_tables(self.tables)
 
 class InsertStmt(ASTNode):
     def __init__(self, table, columns, values):
@@ -37,7 +47,7 @@ class InsertStmt(ASTNode):
 
     def verify(self):
         if len(self.columns) != len(self.values):
-            raise PreProcessorError(f"Values length({len(self.values)}) != columns length({len(self.columns)})")
+            raise PreProcessorError(f"Columns length({len(self.columns)}) != values length({len(self.values)})")
 
 class UpdateStmt(ASTNode):
     def __init__(self, table, assignments, where):

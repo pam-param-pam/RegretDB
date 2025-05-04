@@ -95,11 +95,7 @@ SelectPlan(
                 And(Gt('orders.amount', 100), Eq('ala', 'name')),
                 And(Gt('orders.amount', 200), Eq('ala', 'name1'))
             ),
-            source=JoinPlan(
-                left=TableScan('users'),
-                right=TableScan('orders'),
-                condition=('=', 'users.id', 'orders.user_id')
-            )
+            source=TableScan('users')
         )
     )
 )

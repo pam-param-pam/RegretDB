@@ -8,10 +8,8 @@ from utility import format_options
 
 # Things that will NOT be supported:
 # JOINS, FUNCTIONS, SUB-QUERIES, DATA SIZE (e.g VARCHAR(100))
-# Statement optimizations
+# Statement optimizations, indexes
 # and a loot more
-
-
 
 class Tokenizer:
     def __init__(self):
@@ -27,11 +25,11 @@ class Tokenizer:
             ('SEMI', r';'),
             ('SKIP', r'[ \t\n\r]+'),  # Skip whitespace
             ('DOT', r'\.'),
-            ('MISMATCH', r'.'),  # Any other character
+            # ('MISMATCH', r'.'),  # Any other character
         ]
         self. tok_regex = '|'.join(f'(?P<{name}>{pattern})' for name, pattern in token_specification)
         self.column_types = [
-            'TEXT', 'NUMBER', 'BLOB'
+            'TEXT', 'NUMBER', 'BLOB', 'BOOL'
         ]
         self.keywords = [
             'SELECT', 'FROM', 'WHERE', 'ORDER', 'BY', 'ASC', 'DESC',
@@ -41,7 +39,7 @@ class Tokenizer:
             'CREATE', 'TABLE',
             'DROP',
             'ALTER', 'ADD', 'DROP', 'RENAME', 'MODIFY', 'CASCADE', 'RESTRICT',
-            'AND', 'OR', 'IS', 'NOT', 'NULL',  # operators
+            'AND', 'OR', 'IS', 'NOT', 'NULL', 'FALSE', 'TRUE', # operators
             'PRIMARY', 'FOREIGN', 'KEY', 'UNIQUE', 'DEFAULT'  # constraints
         ] + self.column_types
 
@@ -52,7 +50,7 @@ class Tokenizer:
         while pos < len(sql):
             m = get_token(sql, pos)
             if not m:
-                raise SyntaxError(f"Illegal character at position {pos}")
+                raise SQLSyntaxError(f"Illegal character at position {pos}", adjust_pos=pos)
             typ = m.lastgroup
             lexeme = m.group(typ)
             if typ == 'STRING':
@@ -70,7 +68,7 @@ class Tokenizer:
             elif typ != 'MISMATCH':
                 tokens.append(Token(typ, lexeme, pos))
             else:  # MISMATCH
-                raise SyntaxError(f"Unexpected character {lexeme!r} at position {pos}")
+                raise SQLSyntaxError(f"Unexpected character {lexeme!r} at position {pos}", adjust_pos=pos)
             pos = m.end()
         return tokens
 
@@ -78,7 +76,7 @@ class Tokenizer:
 class Parser:
     def __init__(self, sql):
         self.tokenizer = Tokenizer()
-        self.tokens = self.tokenizer.tokenize(sql)
+        self.tokens = []
         self.pos = 0
         self.sql = sql
 
@@ -96,11 +94,12 @@ class Parser:
             self.advance()
             return token
         else:
-            raise SQLSyntaxError(f"Expected {type_or_value}, found {token}")
+            raise SQLSyntaxError(f"Expected '{type_or_value}' instead found {token}")
 
     def parse(self):
         """Parse the next statement based on the leading keyword and check for extra input."""
         try:
+            self.tokens = self.tokenizer.tokenize(sql)
             token = self.peek()
 
             if token.type == 'SELECT':
@@ -166,63 +165,6 @@ class Parser:
             else:
                 raise SQLSyntaxError(f"Expected literal value, found {token}")
         return vals
-
-    # Expression parsing for WHERE clauses (handles AND/OR and comparisons)
-    def parse_expression(self):
-        return self.parse_or()
-
-    def parse_or(self):
-        left = self.parse_and()
-        while self.peek().type == 'OR':
-            self.advance()
-            right = self.parse_and()
-            left = ('OR', left, right)
-        return left
-
-    def parse_and(self):
-        left = self.parse_comparison()
-        while self.peek().type == 'AND':
-            self.advance()
-            right = self.parse_comparison()
-            left = ('AND', left, right)
-        return left
-
-    def parse_comparison(self):
-        if self.peek().type == 'LPAREN':
-            self.advance()
-            expr = self.parse_expression()
-            self.expect('RPAREN')
-            return expr
-
-        left = self.parse_identifier()
-        peeked = self.peek()
-
-        # Handle IS [NOT] NULL
-        if peeked.type == 'IS':
-            self.advance()
-            if self.peek().type == 'NOT':
-                self.advance()
-                self.expect('NULL')
-                return 'IS NOT NULL', left
-            else:
-                self.expect('NULL')
-                return 'IS NULL', left
-
-        if peeked.type != 'OP':
-            raise SQLSyntaxError(f"Expected comparison operator, found {peeked}")
-        op = peeked.value
-        self.advance()
-
-        token = self.peek()
-        if token.type in ('NUMBER', 'STRING'):
-            right = token.value
-            self.advance()
-        elif token.type == 'IDENTIFIER':
-            right = self.parse_identifier()
-        else:
-            raise SQLSyntaxError(f"Expected identifier or literal after operator, found {token}")
-
-        return op, left, right
 
     def parse_constraints(self):
         """Parse one or more column constraints."""
@@ -312,12 +254,96 @@ class Parser:
         return assignments
 
     def parse_column_type(self):
-        """Parses a simple column type without size"""
-        token = self.peek()
-        if token.type in self.tokenizer.column_types:
+        """Parses column type with size if required"""
+        peeked = self.peek()
+        if peeked.type in self.tokenizer.column_types:
             self.advance()
-            return token.type
-        raise SQLSyntaxError(f"Expected column type ({format_options(self.tokenizer.column_types)}), found {token.type}")
+            if peeked.type in ('TEXT', 'BLOB'):  # need size
+                self.expect("(")
+                peeked2 = self.peek()
+                if peeked2.type != 'NUMBER':
+                    raise SQLSyntaxError(f"Expected size, found {peeked2}")
+                self.advance()
+                size = peeked2.value
+                self.expect(")")
+                return peeked.type, size
+            return peeked.type
+
+        raise SQLSyntaxError(f"Expected column type ({format_options(self.tokenizer.column_types)}), found {peeked}")
+
+    def parse_expression(self):
+        """not > and > or"""
+        return self.parse_or()  # lowest precedence
+
+    def parse_or(self):
+        left = self.parse_and()
+        while self.peek().type == 'OR':
+            self.advance()
+            right = self.parse_and()
+            left = ('OR', left, right)
+        return left
+
+    def parse_and(self):
+        left = self.parse_not()
+        while self.peek().type == 'AND':
+            self.advance()
+            right = self.parse_not()
+            left = ('AND', left, right)
+        return left
+
+    def parse_not(self):
+        if self.peek().type == 'NOT':
+            self.advance()
+            operand = self.parse_not()
+            return 'NOT', operand
+        return self.parse_comparison()
+
+    def parse_comparison(self):
+        if self.peek().type == 'LPAREN':
+            self.advance()
+            expr = self.parse_expression()
+            self.expect(')')
+            return expr
+
+        token = self.peek()
+
+        # Handle boolean literals
+        if token.type in ('TRUE', 'FALSE'):
+            self.advance()
+            return token.type == 'TRUE'
+
+        left = self.parse_identifier()
+        peeked = self.peek()
+
+        # Handle IS [NOT] NULL
+        if peeked.type == 'IS':
+            self.advance()
+            if self.peek().type == 'NOT':
+                self.advance()
+                self.expect('NULL')
+                return 'IS NOT NULL', left
+            else:
+                self.expect('NULL')
+                return 'IS NULL', left
+
+        if peeked.type != 'OP':
+            raise SQLSyntaxError(f"Expected comparison operator, found {peeked}")
+        op = peeked.value
+        self.advance()
+
+        token = self.peek()
+        if token.type in ('NUMBER', 'STRING'):
+            right = token.value
+            self.advance()
+        elif token.type == 'IDENTIFIER':
+            right = self.parse_identifier()
+        elif token.type in ('TRUE', 'FALSE'):
+            self.advance()
+            right = token.type == 'TRUE'
+        else:
+            raise SQLSyntaxError(f"Expected identifier or literal after operator, found {token}")
+
+        return op, left, right
 
     # ===========================================
     # ------------ Statement parsers ------------
@@ -478,6 +504,7 @@ class Parser:
 # sql = "ALTER TABLE employees ADD COLUMN department TEXT NOT NULL PRIMARY KEY UNIQUE FOREIGN KEY DEFAULT '1'"
 # sql = "ALTER TABLE employees DROP COLUMN salary CASCADE1"
 # sql = "ALTER TABLE employees RENAME COLUMN nam1 TO name2"
-sql = "ALTER TABLE employees MODIFY COLUMN age NUMBER NOT NULL"
+# sql = "ALTER TABLE employees MODIFY COLUMN age TEXT(1) NOT NULL"
+sql = "SELECT users.id, users.name FROM users WHERE false"
 ast = Parser(sql).parse()
 print(ast)

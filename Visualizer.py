@@ -19,34 +19,6 @@ def load_tables_from_json(json_data):
     return tables
 
 
-def visualize_table(tables):
-    """
-    Displays each table in a human-readable format.
-    """
-    for table_name, table in tables.items():
-        columns = table[0]
-        rows = table[1:]
-
-        col_widths = [len(col) for col in columns]
-        for row in rows:
-            for i, val in enumerate(row):
-                col_widths[i] = max(col_widths[i], len(str(val)))
-
-        def divider():
-            return '+' + '+'.join(['-' * (w + 2) for w in col_widths]) + '+'
-
-        def format_row(row_data):
-            return '| ' + ' | '.join(f"{str(val).ljust(col_widths[i])}" for i, val in enumerate(row_data)) + ' |'
-
-        print(f"\nTable: {table_name}")
-        print(divider())
-        print(format_row(columns))
-        print(divider())
-        for row in rows:
-            print(format_row(row))
-        print(divider())
-
-
 file_path = "tables.json"
 
 with open(file_path, 'r') as file:
@@ -55,4 +27,4 @@ with open(file_path, 'r') as file:
 tables = load_tables_from_json(json_data)
 for table in tables:
     table.visualize_metadata()
-
+    table.visualize_table()

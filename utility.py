@@ -1,7 +1,10 @@
 def get_pretty_error(sql, tokens, pos, adjust_pos=0):
     try:
-        offset = tokens[pos + adjust_pos].offset
         adjust = 0
+        if tokens:
+            offset = tokens[pos + adjust_pos].offset
+        else:
+            offset = adjust_pos
     except IndexError:
         offset = len(sql)
         adjust = 1
