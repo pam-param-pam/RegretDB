@@ -2,14 +2,20 @@ def get_pretty_error(sql, tokens, pos, adjust_pos=0):
     try:
         adjust = 0
         if tokens:
-            offset = tokens[pos + adjust_pos].offset
+            token = tokens[pos + adjust_pos]
+            offset = token.offset
+            token_length = len(token.value)
+            if token.type == 'STRING':  # adjust for '
+                adjust += 1
         else:
             offset = adjust_pos
+            token_length = 1
     except IndexError:
         offset = len(sql)
         adjust = 1
-
-    return sql + "\n" + (offset + adjust) * " " + "^"
+        token_length = 1
+    print(token_length)
+    return sql + "\n" + (offset + adjust) * " " + "^" * token_length
 
 def format_options(options):
     """Formats a list like ['ADD', 'DROP', 'RENAME'] into: 'ADD', 'DROP' or 'RENAME'"""

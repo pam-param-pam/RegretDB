@@ -44,15 +44,22 @@ class PreProcessorError(RegretDBError):
             if idx == -1:
                 break
 
+            # Characters before and after
             before = self.sql_stmt[idx - 1] if idx > 0 else ''
             after = self.sql_stmt[idx + word_len] if idx + word_len < len(self.sql_stmt) else ''
+
             if before == "'" and after == "'":
+                idx += word_len
+                continue
+
+            if (before.isalnum() or before == '_') or (after.isalnum() or after == '_'):
                 idx += word_len
                 continue
 
             for i in range(word_len):
                 if idx + i < len(underline):
                     underline[idx + i] = '^'
+
             idx += word_len
 
         underline_str = ''.join(underline)

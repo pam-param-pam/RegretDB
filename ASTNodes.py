@@ -1,6 +1,7 @@
 from abc import abstractmethod, ABC
 
 from Exceptions import PreProcessorError
+from Operators.LogicalOperators import Operator
 
 
 class ASTNode(ABC):
@@ -19,6 +20,7 @@ class ASTNode(ABC):
         """Checks if all tables exist in the schema and checks for duplicates."""
         seen = set()
         for table in tables:
+            table = table.value
             if table in seen:
                 raise PreProcessorError(f"Duplicate table '{table}' found.", word=table)
             if table not in self.table_columns.keys():
@@ -29,7 +31,10 @@ class ASTNode(ABC):
         """Checks if columns exist, checks for duplicates and checks for ambiguity"""
         seen = set()
 
+        tables = [table.value for table in tables]
+
         for column in columns:
+            column = column.value
             if column in seen:
                 raise PreProcessorError(f"Duplicate column '{column}' found", word=column)
 
@@ -38,7 +43,7 @@ class ASTNode(ABC):
                 table_name = tables[0]
 
             if table_name not in tables:
-                raise PreProcessorError(f"Table '{table_name}' is not specified in FROm clause", word=table_name)
+                raise PreProcessorError(f"Table '{table_name}' is not specified in 'FROM' clause", word=table_name)
 
             if not table_name:
                 raise PreProcessorError(f"Column '{col_name}' must be prefixed(ambiguity error)", word=col_name)
@@ -52,6 +57,7 @@ class ASTNode(ABC):
 
     def split_column(self, column):
         """Splits a column name into table and column name, if prefixed with a table."""
+
         if '.' in column:
             table_name, col_name = column.split('.')
         else:
@@ -59,8 +65,39 @@ class ASTNode(ABC):
             col_name = column
         return table_name, col_name
 
-    def check_expression_types(self, where):
-        pass
+    def check_expression_types(self, tables, columns, where):
+        def recurse(node):
+            if isinstance(node, Operator):
+                print(node)
+                left = node.left
+                right = node.right
+                print(left)
+                print(right)
+
+                # # Check left operand
+                # if isinstance(left, Operator):
+                #     recurse(left)
+                # elif isinstance(left, str) and left in columns:
+                #     left_type = columns[left]
+                # else:
+                #     left_type = type(left).__name__.upper()
+            #
+            #     # Check right operand
+            #     if right is not None:
+            #         if isinstance(right, Operator):
+            #             recurse(right)
+            #         elif isinstance(right, str) and right in columns:
+            #             right_type = columns[right]
+            #         else:
+            #             right_type = type(right).__name__.upper()
+            #
+            #         # Check for type mismatch in binary ops
+            #         if isinstance(node, (GT, LT, GE, TE, EG, NE)):
+            #             if left_type != right_type:
+            #                 print(f"Type mismatch: {left_type} vs {right_type} in {node}")
+            else:
+                pass
+        recurse(where)
 
 class SelectStmt(ASTNode):
     def __init__(self, columns, tables, where_expr, order_by):
@@ -78,7 +115,7 @@ class SelectStmt(ASTNode):
         try:
             self.check_tables(self.tables)
             self.check_columns(self.tables, self.columns)
-            self.check_expression_types(self.where_expr)
+            self.check_expression_types(self.tables, self.columns, self.where_expr)
         except PreProcessorError as e:
             e.sql_stmt = sql_stmt
             raise e
@@ -93,9 +130,15 @@ class InsertStmt(ASTNode):
     def __repr__(self):
         return f"InsertStmt(table={self.table}, columns={self.columns}, values={self.values})"
 
-    def verify(self, metadata):
+    def verify(self, sql_stmt, metadata):
+        super().verify(sql_stmt, metadata)
         if len(self.columns) != len(self.values):
-            raise PreProcessorError(f"Columns length({len(self.columns)}) != values length({len(self.values)})")
+            # diff = abs(len(self.columns) - len(self.values))
+            # if len(self.columns) > len(self.values):
+            #     unmatched = self.columns[-diff:]
+            # else:
+            #     unmatched = self.values[-diff:]
+            raise PreProcessorError(f"Columns length({len(self.columns)}) != values length({len(self.values)})")  # , word=unmatched
 
         tables = [self.table]
         self.check_tables(tables)

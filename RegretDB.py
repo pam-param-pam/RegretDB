@@ -18,6 +18,7 @@ class RegretDB:
         self.statement = None
 
     def execute_order_66(self, sql_stmt):
+        """May the 4th be with you"""
         self.parser = Parser(sql_stmt)
         self.statement = self.parser.parse()
         print(self.statement)
@@ -71,8 +72,9 @@ class RegretDB:
 
 # Example usage:
 db_engine = RegretDB()
-
-db_engine.execute_order_66("SELECT users.id, orders.amount FROM users WHERE (orders.amount > 100 and ala = 'name') or (orders.amount > 200 and ala = 'amount') ORDER BY orders.amount ASC, orders.name DESC")
+# sql = "SELECT users.id, orders.amount FROM users, orders WHERE (orders.amount > 100 and ala = 'name') or (orders.amount > 200 and not ala = 'ala') ORDER BY orders.amount ASC, orders.name DESC"
+sql = "SELECT name FROM users WHERE True"
+db_engine.execute_order_66(sql)
 
 
 
