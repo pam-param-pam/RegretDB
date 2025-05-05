@@ -5,19 +5,61 @@ from Exceptions import PreProcessorError
 
 class ASTNode(ABC):
     def __init__(self):
-        self.verify()
+        self.column_constraints = None
+        self.column_types = None
+        self.table_columns = None
+        self.sql_stmt = None
 
-    @abstractmethod
-    def verify(self):
-        raise NotImplementedError("verify() not implemented")
-
-    def check_columns(self, columns):
-        pass
+    # @abstractmethod
+    def verify(self, sql_stmt, metadata):
+        print("verify")
+        self.table_columns, self.column_types, self.column_constraints = metadata
 
     def check_tables(self, tables):
-        pass
+        """Checks if all tables exist in the schema and checks for duplicates."""
+        seen = set()
+        for table in tables:
+            if table in seen:
+                raise PreProcessorError(f"Duplicate table '{table}' found.", word=table)
+            if table not in self.table_columns.keys():
+                raise PreProcessorError(f"Table '{table}' not found.", word=table)
+            seen.add(table)
 
-    def check_type(self):
+    def check_columns(self, tables, columns):
+        """Checks if columns exist, checks for duplicates and checks for ambiguity"""
+        seen = set()
+
+        for column in columns:
+            if column in seen:
+                raise PreProcessorError(f"Duplicate column '{column}' found", word=column)
+
+            table_name, col_name = self.split_column(column)
+            if len(tables) == 1 and not table_name:
+                table_name = tables[0]
+
+            if table_name not in tables:
+                raise PreProcessorError(f"Table '{table_name}' is not specified in FROm clause", word=table_name)
+
+            if not table_name:
+                raise PreProcessorError(f"Column '{col_name}' must be prefixed(ambiguity error)", word=col_name)
+
+            columns = self.table_columns.get(table_name)
+            if not columns:
+                raise PreProcessorError(f"Table '{table_name}' not found", word=table_name)
+            if col_name not in self.table_columns[table_name]:
+                raise PreProcessorError(f"Column '{col_name}' not found in table '{table_name}'", word=col_name)
+            seen.add(column)
+
+    def split_column(self, column):
+        """Splits a column name into table and column name, if prefixed with a table."""
+        if '.' in column:
+            table_name, col_name = column.split('.')
+        else:
+            table_name = None  # No table prefix
+            col_name = column
+        return table_name, col_name
+
+    def check_expression_types(self, where):
         pass
 
 class SelectStmt(ASTNode):
@@ -31,9 +73,15 @@ class SelectStmt(ASTNode):
     def __repr__(self):
         return f"SelectStmt(columns={self.columns}, tables={self.tables}, where={self.where_expr}, order_by={self.order_by})"
 
-    def verify(self):
-        self.check_columns(self.columns)
-        self.check_tables(self.tables)
+    def verify(self, sql_stmt, metadata):
+        super().verify(sql_stmt, metadata)
+        try:
+            self.check_tables(self.tables)
+            self.check_columns(self.tables, self.columns)
+            self.check_expression_types(self.where_expr)
+        except PreProcessorError as e:
+            e.sql_stmt = sql_stmt
+            raise e
 
 class InsertStmt(ASTNode):
     def __init__(self, table, columns, values):
@@ -45,9 +93,13 @@ class InsertStmt(ASTNode):
     def __repr__(self):
         return f"InsertStmt(table={self.table}, columns={self.columns}, values={self.values})"
 
-    def verify(self):
+    def verify(self, metadata):
         if len(self.columns) != len(self.values):
             raise PreProcessorError(f"Columns length({len(self.columns)}) != values length({len(self.values)})")
+
+        tables = [self.table]
+        self.check_tables(tables)
+        self.check_columns(tables, self.columns)
 
 class UpdateStmt(ASTNode):
     def __init__(self, table, assignments, where):
@@ -59,8 +111,9 @@ class UpdateStmt(ASTNode):
     def __repr__(self):
         return f"UpdateStmt(table={self.table}, assignments={self.assignments}, where={self.where})"
 
-    def verify(self):
+    def verify(self, metadata):
         pass
+
 
 class DeleteStmt(ASTNode):
     def __init__(self, table, where):
@@ -71,8 +124,9 @@ class DeleteStmt(ASTNode):
     def __repr__(self):
         return f"DeleteStmt(table={self.table}, where={self.where})"
 
-    def verify(self):
+    def verify(self, metadata):
         pass
+
 
 class CreateStmt(ASTNode):
     def __init__(self, table, columns):
@@ -83,8 +137,9 @@ class CreateStmt(ASTNode):
     def __repr__(self):
         return f"CreateStmt(table={self.table}, columns={self.columns})"
 
-    def verify(self):
+    def verify(self, metadata):
         pass
+
 
 class DropStmt(ASTNode):
     def __init__(self, table):
@@ -94,8 +149,9 @@ class DropStmt(ASTNode):
     def __repr__(self):
         return f"DropStmt(table={self.table})"
 
-    def verify(self):
+    def verify(self, metadata):
         pass
+
 
 class AlterStmt(ASTNode):
     def __init__(self, table, action, column):
@@ -107,5 +163,15 @@ class AlterStmt(ASTNode):
     def __repr__(self):
         return f"AlterStmt(table={self.table}, action={self.action}, column={self.column})"
 
-    def verify(self):
+    def verify(self, metadata):
         pass
+
+
+# Tworzenie obiektu SelectStmt
+# select = SelectStmt(
+#     columns=['users.name', 'orders.order_id'],
+#     tables=['users', 'orders'],
+#     where_expr=(),  # some expression object
+#     order_by=[],
+# )
+# select.verify()

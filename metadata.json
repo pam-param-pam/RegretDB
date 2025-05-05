@@ -1,0 +1,18 @@
+{
+  "tables": {
+    "users": {
+      "columns": [
+        {"name": "id", "type": "INTEGER", "constraints": ["PRIMARY KEY", "NOT NULL"]},
+        {"name": "name", "type": "TEXT", "constraints": ["NOT NULL"]},
+        {"name": "email", "type": "TEXT", "constraints": ["NOT NULL"]}
+      ]
+    },
+    "orders": {
+      "columns": [
+        {"name": "order_id", "type": "INTEGER", "constraints": ["PRIMARY KEY", "NOT NULL"]},
+        {"name": "user_id", "type": "INTEGER", "constraints": ["NOT NULL"]},
+        {"name": "amount", "type": "DECIMAL", "constraints": []}
+      ]
+    }
+  }
+}

@@ -2,14 +2,10 @@ import re
 
 from ASTNodes import *
 from Exceptions import SQLSyntaxError, RegretDBError
+from Operators.LogicalOperators import OR, AND, IS_NOT_NULL, IS_NULL, TE, GE, LT, GT, NE, EG, NOT
 from Token import Token
 from utility import format_options
 
-
-# Things that will NOT be supported:
-# JOINS, FUNCTIONS, SUB-QUERIES, DATA SIZE (e.g VARCHAR(100))
-# Statement optimizations, indexes
-# and a loot more
 
 class Tokenizer:
     def __init__(self):
@@ -27,21 +23,21 @@ class Tokenizer:
             ('DOT', r'\.'),
             # ('MISMATCH', r'.'),  # Any other character
         ]
-        self. tok_regex = '|'.join(f'(?P<{name}>{pattern})' for name, pattern in token_specification)
+        self.tok_regex = '|'.join(f'(?P<{name}>{pattern})' for name, pattern in token_specification)
         self.column_types = [
             'TEXT', 'NUMBER', 'BLOB', 'BOOL'
         ]
         self.keywords = [
-            'SELECT', 'FROM', 'WHERE', 'ORDER', 'BY', 'ASC', 'DESC',
-            'INSERT', 'INTO', 'VALUES',
-            'UPDATE', 'SET',
-            'DELETE',
-            'CREATE', 'TABLE',
-            'DROP',
-            'ALTER', 'ADD', 'DROP', 'RENAME', 'MODIFY', 'CASCADE', 'RESTRICT',
-            'AND', 'OR', 'IS', 'NOT', 'NULL', 'FALSE', 'TRUE', # operators
-            'PRIMARY', 'FOREIGN', 'KEY', 'UNIQUE', 'DEFAULT'  # constraints
-        ] + self.column_types
+                            'SELECT', 'FROM', 'WHERE', 'ORDER', 'BY', 'ASC', 'DESC',
+                            'INSERT', 'INTO', 'VALUES',
+                            'UPDATE', 'SET',
+                            'DELETE',
+                            'CREATE', 'TABLE',
+                            'DROP',
+                            'ALTER', 'ADD', 'DROP', 'RENAME', 'MODIFY', 'CASCADE', 'RESTRICT',
+                            'AND', 'OR', 'IS', 'NOT', 'NULL', 'FALSE', 'TRUE',  # operators
+                            'PRIMARY', 'FOREIGN', 'KEY', 'UNIQUE', 'DEFAULT'  # constraints
+                        ] + self.column_types
 
     def tokenize(self, sql):
         get_token = re.compile(self.tok_regex).match
@@ -79,6 +75,14 @@ class Parser:
         self.tokens = []
         self.pos = 0
         self.sql = sql
+        self.OPERATOR_MAP = {
+            '=': EG,
+            '!=': NE,
+            '>': GT,
+            '<': LT,
+            '>=': GE,
+            '<=': TE
+        }
 
     def peek(self):
         return self.tokens[self.pos] if self.pos < len(self.tokens) else Token('EOF', 'EOF', self.pos)
@@ -99,7 +103,7 @@ class Parser:
     def parse(self):
         """Parse the next statement based on the leading keyword and check for extra input."""
         try:
-            self.tokens = self.tokenizer.tokenize(sql)
+            self.tokens = self.tokenizer.tokenize(self.sql)
             token = self.peek()
 
             if token.type == 'SELECT':
@@ -280,7 +284,7 @@ class Parser:
         while self.peek().type == 'OR':
             self.advance()
             right = self.parse_and()
-            left = ('OR', left, right)
+            left = OR(left, right)
         return left
 
     def parse_and(self):
@@ -288,14 +292,14 @@ class Parser:
         while self.peek().type == 'AND':
             self.advance()
             right = self.parse_not()
-            left = ('AND', left, right)
+            left = AND(left, right)
         return left
 
     def parse_not(self):
         if self.peek().type == 'NOT':
             self.advance()
             operand = self.parse_not()
-            return 'NOT', operand
+            return NOT(operand)
         return self.parse_comparison()
 
     def parse_comparison(self):
@@ -307,7 +311,6 @@ class Parser:
 
         token = self.peek()
 
-        # Handle boolean literals
         if token.type in ('TRUE', 'FALSE'):
             self.advance()
             return token.type == 'TRUE'
@@ -315,20 +318,24 @@ class Parser:
         left = self.parse_identifier()
         peeked = self.peek()
 
-        # Handle IS [NOT] NULL
         if peeked.type == 'IS':
             self.advance()
             if self.peek().type == 'NOT':
                 self.advance()
                 self.expect('NULL')
-                return 'IS NOT NULL', left
+                return IS_NOT_NULL(left)
             else:
                 self.expect('NULL')
-                return 'IS NULL', left
+                return IS_NULL(left)
 
         if peeked.type != 'OP':
             raise SQLSyntaxError(f"Expected comparison operator, found {peeked}")
+
         op = peeked.value
+        op_class = self.OPERATOR_MAP.get(op)
+        if not op_class:
+            raise SQLSyntaxError(f"Unknown operator '{op}'")
+
         self.advance()
 
         token = self.peek()
@@ -343,7 +350,7 @@ class Parser:
         else:
             raise SQLSyntaxError(f"Expected identifier or literal after operator, found {token}")
 
-        return op, left, right
+        return op_class(left, right)
 
     # ===========================================
     # ------------ Statement parsers ------------
@@ -494,8 +501,7 @@ class Parser:
             constraints = self.parse_constraints()
             return AlterStmt(table, action, (col_name, col_type, constraints))
 
-
-# sql = "SELECT users.id, orders.amount FROM users WHERE (orders.amount > 100 and ala = 'name') or (orders.amount > 200 and ala = 'name1') ORDER BY orders.amount ASC, orders.name DESC"
+# sql = "SELECT users.id, orders.amount FR1OM users WHERE (orders.amount > 100 and ala = 'name') or (orders.amount > 200 and ala = 'name1') ORDER BY orders.amount ASC, orders.name DESC"
 # sql = "INSERT INTO Customers (CustomerName, ContactName, Address, City, Country) VALUES ('Cardinal', 'Tom B. Erichsen', 'Skagen 21', 'Stavanger', '4006', 'Norway')"
 # sql = "UPDATE users SET name = 'Alice Smith', email = 'alice.smith@example.com' WHERE id is not null AND name = 1"
 # sql = "DELETE FROM users WHERE age < 18"
@@ -505,6 +511,6 @@ class Parser:
 # sql = "ALTER TABLE employees DROP COLUMN salary CASCADE1"
 # sql = "ALTER TABLE employees RENAME COLUMN nam1 TO name2"
 # sql = "ALTER TABLE employees MODIFY COLUMN age TEXT(1) NOT NULL"
-sql = "SELECT users.id, users.name FROM users WHERE false"
-ast = Parser(sql).parse()
-print(ast)
+# sql = "SELECT users.id, users.name FROM users WHERE false"
+# ast = Parser(sql).parse()
+# print(ast)

@@ -1,23 +1,55 @@
-class AND:  # and
+from abc import ABC
+
+
+class Operator(ABC):
+    def __init__(self, left, right=None):
+        self.left = left
+        self.right = right
+
+    def __str__(self):
+        return f"{self.__class__.__name__}({self.left}, {self.right})"
+
+class NOT(Operator):
+    def __init__(self, operand):
+        self.operand = operand
+        super().__init__(left=operand)
+
+
+class AND(Operator):
     pass
 
-class OR:  # or
+
+class OR(Operator):
     pass
 
-class GT:  # grater than
+
+class GT(Operator):
     pass
 
-class LT:  # less than
+
+class LT(Operator):
     pass
 
-class GE:  # greater or equal than
+
+class GE(Operator):
     pass
 
-class TE:  # less or equal than
+
+class TE(Operator):
     pass
 
-class EG:  # equal
+
+class EG(Operator):
     pass
 
-class NE:  # not equal
+
+class NE(Operator):
+    pass
+
+
+class IS_NULL(Operator):
+    pass
+
+
+class IS_NOT_NULL(Operator):
     pass
