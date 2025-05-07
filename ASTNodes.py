@@ -1,59 +1,86 @@
-from abc import abstractmethod, ABC
+from abc import ABC
 
-from Exceptions import PreProcessorError
+from DataManager import data_manager
+from Exceptions import PreProcessorError, RegretDBError
 from Operators.LogicalOperators import Operator
+from TokenTypes import Identifier, Literal
 
 
 class ASTNode(ABC):
     def __init__(self):
-        self.column_constraints = None
-        self.column_types = None
-        self.table_columns = None
-        self.sql_stmt = None
+        self.column_constraints = data_manager.get_column_constraints()
+        self.column_types = data_manager.get_column_types()
+        self.table_columns = data_manager.get_table_columns()
+        self.sql_text = None
+
+    def verify(self):
+        try:
+            self.perform_checks()
+        except PreProcessorError as e:
+            if not self.sql_text:
+                raise RegretDBError("sql_text not set in ASTNode")
+            e.sql_stmt = self.sql_text
+            raise e
 
     # @abstractmethod
-    def verify(self, sql_stmt, metadata):
-        print("verify")
-        self.table_columns, self.column_types, self.column_constraints = metadata
+    def perform_checks(self):
+        raise NotImplementedError()
+
+    def set_sql_text(self, sql_text):
+        self.sql_text = sql_text
+
+    def deanonymize_columns(self, columns, table_name):
+        for column in columns:
+            if table_name:
+                if "." not in column.value:
+                    column.value = f"{table_name}.{column.value}"
 
     def check_tables(self, tables):
         """Checks if all tables exist in the schema and checks for duplicates."""
         seen = set()
         for table in tables:
-            table = table.value
             if table in seen:
                 raise PreProcessorError(f"Duplicate table '{table}' found.", word=table)
             if table not in self.table_columns.keys():
                 raise PreProcessorError(f"Table '{table}' not found.", word=table)
             seen.add(table)
 
+    def check_column(self, tables, column):
+        table_name, col_name = self.split_column(column)
+        flag = False
+        if len(tables) == 1 and not table_name:
+            table_name = tables[0]
+            flag = True
+
+        if not table_name:
+            raise PreProcessorError(f"Column '{col_name}' must be prefixed(ambiguity error)", word=col_name)
+
+        if table_name not in tables:
+            raise PreProcessorError(f"Table '{table_name}' is not specified in 'FROM' clause", word=table_name)
+
+        columns = self.table_columns.get(table_name)
+        if not columns:
+            raise PreProcessorError(f"Table '{table_name}' not found", word=table_name)
+        if col_name not in self.table_columns[table_name]:
+            raise PreProcessorError(f"Column '{col_name}' not found in table '{table_name}'", word=col_name)
+
+        if flag:
+            return f"{table_name}.{column}"
+        return column
+
     def check_columns(self, tables, columns):
-        """Checks if columns exist, checks for duplicates and checks for ambiguity"""
-        seen = set()
-
-        tables = [table.value for table in tables]
-
+        """Checks if columns exist, checks for duplicates and checks for ambiguity
+        If columns are missing table name, they are added in the SQL . format
+        """
+        seen = []
         for column in columns:
-            column = column.value
             if column in seen:
                 raise PreProcessorError(f"Duplicate column '{column}' found", word=column)
 
-            table_name, col_name = self.split_column(column)
-            if len(tables) == 1 and not table_name:
-                table_name = tables[0]
+            column = self.check_column(tables, column)
 
-            if table_name not in tables:
-                raise PreProcessorError(f"Table '{table_name}' is not specified in 'FROM' clause", word=table_name)
-
-            if not table_name:
-                raise PreProcessorError(f"Column '{col_name}' must be prefixed(ambiguity error)", word=col_name)
-
-            columns = self.table_columns.get(table_name)
-            if not columns:
-                raise PreProcessorError(f"Table '{table_name}' not found", word=table_name)
-            if col_name not in self.table_columns[table_name]:
-                raise PreProcessorError(f"Column '{col_name}' not found in table '{table_name}'", word=col_name)
-            seen.add(column)
+            seen.append(column)
+        return seen
 
     def split_column(self, column):
         """Splits a column name into table and column name, if prefixed with a table."""
@@ -65,39 +92,24 @@ class ASTNode(ABC):
             col_name = column
         return table_name, col_name
 
-    def check_expression_types(self, tables, columns, where):
+    def check_expression(self, tables, where_expr):
         def recurse(node):
             if isinstance(node, Operator):
-                print(node)
-                left = node.left
-                right = node.right
-                print(left)
-                print(right)
+                node.left = recurse(node.left)
+                node.right = recurse(node.right)
+                return node
 
-                # # Check left operand
-                # if isinstance(left, Operator):
-                #     recurse(left)
-                # elif isinstance(left, str) and left in columns:
-                #     left_type = columns[left]
-                # else:
-                #     left_type = type(left).__name__.upper()
-            #
-            #     # Check right operand
-            #     if right is not None:
-            #         if isinstance(right, Operator):
-            #             recurse(right)
-            #         elif isinstance(right, str) and right in columns:
-            #             right_type = columns[right]
-            #         else:
-            #             right_type = type(right).__name__.upper()
-            #
-            #         # Check for type mismatch in binary ops
-            #         if isinstance(node, (GT, LT, GE, TE, EG, NE)):
-            #             if left_type != right_type:
-            #                 print(f"Type mismatch: {left_type} vs {right_type} in {node}")
-            else:
-                pass
-        recurse(where)
+            elif isinstance(node, Identifier):
+                column = self.check_column(tables, node.value)
+                return column
+
+            elif isinstance(node, Literal):
+                return node.value
+
+            return node
+
+        return recurse(where_expr)
+
 
 class SelectStmt(ASTNode):
     def __init__(self, columns, tables, where_expr, order_by):
@@ -110,15 +122,26 @@ class SelectStmt(ASTNode):
     def __repr__(self):
         return f"SelectStmt(columns={self.columns}, tables={self.tables}, where={self.where_expr}, order_by={self.order_by})"
 
-    def verify(self, sql_stmt, metadata):
-        super().verify(sql_stmt, metadata)
-        try:
-            self.check_tables(self.tables)
-            self.check_columns(self.tables, self.columns)
-            self.check_expression_types(self.tables, self.columns, self.where_expr)
-        except PreProcessorError as e:
-            e.sql_stmt = sql_stmt
-            raise e
+    def perform_checks(self):
+        self.tables = [table.value for table in self.tables]
+        self.columns = [column.value for column in self.columns]
+        self.check_tables(self.tables)
+        self.columns = self.check_columns(self.tables, self.columns)
+        self.where_expr = self.check_expression(self.tables, self.where_expr)
+        self.order_by = self.check_order_by()
+
+    def check_order_by(self):
+        seen = []
+        new_order_by = []
+        for element in self.order_by:
+            column = self.check_column(self.tables, element[0].value)
+            if column in seen:
+                raise PreProcessorError(f"Duplicate column '{column}' found", word=column)
+            seen.append(column)
+            new_order_by.append((column, element[1]))
+
+        return new_order_by
+
 
 class InsertStmt(ASTNode):
     def __init__(self, table, columns, values):
@@ -130,69 +153,70 @@ class InsertStmt(ASTNode):
     def __repr__(self):
         return f"InsertStmt(table={self.table}, columns={self.columns}, values={self.values})"
 
-    def verify(self, sql_stmt, metadata):
-        super().verify(sql_stmt, metadata)
+    def perform_checks(self):
         if len(self.columns) != len(self.values):
-            # diff = abs(len(self.columns) - len(self.values))
-            # if len(self.columns) > len(self.values):
-            #     unmatched = self.columns[-diff:]
-            # else:
-            #     unmatched = self.values[-diff:]
             raise PreProcessorError(f"Columns length({len(self.columns)}) != values length({len(self.values)})")  # , word=unmatched
+
+        self.columns = [column.value for column in self.columns]
+        self.table = self.table.value
 
         tables = [self.table]
         self.check_tables(tables)
-        self.check_columns(tables, self.columns)
+        self.columns = self.check_columns(tables, self.columns)
 
-class UpdateStmt(ASTNode):
-    def __init__(self, table, assignments, where):
-        self.table = table
-        self.assignments = assignments  # list of (column, value) pairs
-        self.where = where
-        super().__init__()
+        for col, val in zip(self.columns, self.values):
+            expected_type = self.column_types[col]
+            constraints = self.column_constraints[col]
 
-    def __repr__(self):
-        return f"UpdateStmt(table={self.table}, assignments={self.assignments}, where={self.where})"
+            # Nullability check
+            if not val.value and any(keyword in constraint.upper() for constraint in constraints for keyword in ('NOT NULL', 'PRIMARY KEY', 'FOREIGN KEY')):
+                raise PreProcessorError(f"Column '{col}' cannot be NULL")
 
-    def verify(self, metadata):
-        pass
-
-
-class DeleteStmt(ASTNode):
-    def __init__(self, table, where):
-        self.table = table
-        self.where = where
-        super().__init__()
-
-    def __repr__(self):
-        return f"DeleteStmt(table={self.table}, where={self.where})"
-
-    def verify(self, metadata):
-        pass
+            if val.type != 'NULL' and val.type != expected_type:
+                raise PreProcessorError(f"Expected type: {expected_type} got: {val} in column: '{col}'")
 
 
 class CreateStmt(ASTNode):
     def __init__(self, table, columns):
-        self.table = table
+        self.name = table.value
         self.columns = columns  # list of (name, type) pairs
         super().__init__()
 
     def __repr__(self):
-        return f"CreateStmt(table={self.table}, columns={self.columns})"
+        return f"CreateStmt(table={self.name}, columns={self.columns})"
 
-    def verify(self, metadata):
-        pass
+    def perform_checks(self):
+        if self.table_columns.get(self.name):
+            raise PreProcessorError(f"ERROR: Table '{self.name}' already exists")
+        seen_columns = set()
+        primary_key_count = 0
+        for col_name, col_type, constraints in self.columns:
+            col_name = col_name.value
+            # Check for duplicate column names
+            if col_name in seen_columns:
+                raise PreProcessorError(f"ERROR: Duplicate column name '{col_name}' in table '{self.name}'")
+            seen_columns.add(col_name)
+
+            # Count PRIMARY KEY constraints
+            if constraints and 'PRIMARY KEY' in constraints:
+                primary_key_count += 1
+
+            # Ensure at most one PRIMARY KEY
+            if primary_key_count > 1:
+                raise PreProcessorError(f"ERROR: Multiple PRIMARY KEY constraints defined for table '{self.name}'")
+
+            # todo check constraitn default value type
 
 
 class DropStmt(ASTNode):
-    def __init__(self, table):
-        self.table = table
+    def __init__(self, tables):
+        self.tables = tables
         super().__init__()
 
     def __repr__(self):
-        return f"DropStmt(table={self.table})"
+        return f"DropStmt(tables={self.tables})"
 
-    def verify(self, metadata):
+    def verify(self):
         pass
 
 
@@ -206,15 +230,32 @@ class AlterStmt(ASTNode):
     def __repr__(self):
         return f"AlterStmt(table={self.table}, action={self.action}, column={self.column})"
 
-    def verify(self, metadata):
+    def verify(self):
         pass
 
 
-# Tworzenie obiektu SelectStmt
-# select = SelectStmt(
-#     columns=['users.name', 'orders.order_id'],
-#     tables=['users', 'orders'],
-#     where_expr=(),  # some expression object
-#     order_by=[],
-# )
-# select.verify()
+class DeleteStmt(ASTNode):
+    def __init__(self, table, where):
+        self.table = table
+        self.where = where
+        super().__init__()
+
+    def __repr__(self):
+        return f"DeleteStmt(table={self.table}, where={self.where})"
+
+    def verify(self):
+        pass
+
+
+class UpdateStmt(ASTNode):
+    def __init__(self, table, assignments, where):
+        self.table = table
+        self.assignments = assignments  # list of (column, value) pairs
+        self.where = where
+        super().__init__()
+
+    def __repr__(self):
+        return f"UpdateStmt(table={self.table}, assignments={self.assignments}, where={self.where})"
+
+    def verify(self):
+        pass

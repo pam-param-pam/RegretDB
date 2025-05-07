@@ -1,2 +1,4 @@
-3,Alice,"alice@example.com"
-3,Alice,"alice@example.com"
+id,name,email
+1,Ala,"ala@example.com"
+2,Ma,"ma@example.com"
+3,Kota,"kota@example.com"

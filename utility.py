@@ -23,3 +23,9 @@ def format_options(options):
     if len(quoted) == 1:
         return quoted[0]
     return ", ".join(quoted[:-1]) + " or " + quoted[-1]
+
+def indent(level=0):
+    return "  " * (level + 1)
+
+def parse_boolean(boolean_str):
+    return boolean_str.upper() == "TRUE"

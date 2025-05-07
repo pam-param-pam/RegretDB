@@ -2,19 +2,24 @@ import re
 
 from ASTNodes import *
 from Exceptions import SQLSyntaxError, RegretDBError
-from Operators.LogicalOperators import OR, AND, IS_NOT_NULL, IS_NULL, LE, GE, LT, GT, NE, EG, NOT
-from Token import Token
+from Operators.LogicalOperators import OR, AND, IS_NOT_NULL, IS_NULL, LE, GE, LT, GT, NE, EG, NOT, BOOL
 from TokenTypes import Identifier, Literal
-from utility import format_options
+from utility import format_options, parse_boolean
 
+class Token:
+    def __init__(self, type, value, offset):
+        self.type = type  # e.g. 'IDENT', 'NUMBER', 'STRING' or a keyword like 'SELECT'
+        self.value = value
+        self.length = len(value)
+        self.offset = offset
+
+    def __repr__(self):
+        return f"Token({self.type}, {self.value!r})"
 
 class Tokenizer:
     def __init__(self):
         token_specification = [
-            ('NUMBER', r'\b\d+(?:\.\d*)?'),  # Integer or decimal
-            ('STRING', r"'([^']*)'"),  # Single-quoted string
-            ('BOOLEAN', r'(?i)\bTRUE\b|\bFALSE\b'),  # Case-insensitive match
-            ('BLOB', r'b\'[0-9A-Fa-f]+\'|x\'[0-9A-Fa-f]+\''),  # BLOB (e.g., b'1A2B')
+            ('BOOLEAN', r'\b[Tt][Rr][Uu][Ee]\b|\b[Ff][Aa][Ll][Ss][Ee]\b'),  # Case-insensitive match
             ('IDENTIFIER', r'[A-Za-z_][A-Za-z_0-9]*'),  # Identifiers
             ('OP', r'<=|>=|!=|=|<|>'),  # Comparison operators
             ('STAR', r'\*'),
@@ -24,6 +29,9 @@ class Tokenizer:
             ('SEMI', r';'),
             ('SKIP', r'[ \t\n\r]+'),  # Skip whitespace
             ('DOT', r'\.'),
+            ('NUMBER', r'\b\d+(?:\.\d*)?'),  # Integer or decimal
+            ('TEXT', r"'([^']*)'"),  # Single-quoted string
+            ('BLOB', r'b\'[0-9A-Fa-f]+\'|x\'[0-9A-Fa-f]+\''),  # BLOB (e.g., b'1A2B')
             ('MISMATCH', r'.'),  # Any other character
         ]
         self.tok_regex = '|'.join(f'(?P<{name}>{pattern})' for name, pattern in token_specification)
@@ -37,7 +45,7 @@ class Tokenizer:
                             'DELETE',
                             'CREATE', 'TABLE',
                             'DROP',
-                            'ALTER', 'ADD', 'DROP', 'RENAME', 'MODIFY', 'CASCADE', 'RESTRICT',
+                            'ALTER', 'ADD', 'RENAME', 'MODIFY', 'CASCADE', 'RESTRICT',
                             'AND', 'OR', 'IS', 'NOT', 'NULL', 'FALSE', 'TRUE',  # operators
                             'PRIMARY', 'FOREIGN', 'KEY', 'UNIQUE', 'DEFAULT'  # constraints
                         ] + self.column_types
@@ -52,9 +60,9 @@ class Tokenizer:
                 raise SQLSyntaxError(f"Illegal character at position {pos}", adjust_pos=pos)
             typ = m.lastgroup
             lexeme = m.group(typ)
-            if typ == 'STRING':
+            if typ == 'TEXT':
                 # Strip the quotes: lexeme includes the quotes, m.group(1) is content
-                tokens.append(Token('STRING', lexeme[1:-1], pos))
+                tokens.append(Token('TEXT', lexeme[1:-1], pos))
             elif typ == 'IDENTIFIER':
                 val = lexeme.upper()
                 # Recognize SQL keywords (we store the type as the uppercase keyword)
@@ -73,11 +81,11 @@ class Tokenizer:
 
 
 class Parser:
-    def __init__(self, sql):
+    def __init__(self):
         self.tokenizer = Tokenizer()
         self.tokens = []
         self.pos = 0
-        self.sql = sql
+        self.sql = None
         self.OPERATOR_MAP = {
             '=': EG,
             '!=': NE,
@@ -103,9 +111,12 @@ class Parser:
         else:
             raise SQLSyntaxError(f"Expected '{type_or_value}' instead found {token}")
 
-    def parse(self):
+    def parse(self, sql_stmt):
+        self.pos = 0
         """Parse the next statement based on the leading keyword and check for extra input."""
         try:
+            self.sql = sql_stmt
+
             self.tokens = self.tokenizer.tokenize(self.sql)
             token = self.peek()
 
@@ -139,11 +150,34 @@ class Parser:
 
     def parse_literal(self):
         token = self.peek()
-        if token.type in ('NUMBER', 'STRING', 'BOOLEAN'):
+        if token.type == 'NUMBER':
+            self.advance()
+            return Literal(type=token.type, value=int(token.value))
+        elif token.type == 'BOOLEAN':
+            self.advance()
+            return Literal(type=token.type, value=parse_boolean(token.value))
+        elif token.type == 'TEXT':
             self.advance()
             return Literal(type=token.type, value=token.value)
+        elif token.type == 'NULL':
+            self.advance()
+            return Literal(type=token.type, value=None)
         else:
             raise SQLSyntaxError(f"Expected literal value, found {token}")
+
+    def parse_column(self, table_name=None):
+        column = self.parse_identifier('COLUMN')
+        return column
+
+    def parse_columns(self):
+        columns = self.parse_identifier_list('COLUMN')
+        return columns
+
+    def parse_table(self):
+        return self.parse_identifier('TABLE')
+
+    def parse_tables(self):
+        return self.parse_identifier_list('TABLE')
 
     def parse_identifier(self, identifier_type):
         """Parses an identifier or qualified identifier like table.column"""
@@ -200,7 +234,13 @@ class Parser:
                 self.expect('KEY')
                 if 'FOREIGN KEY' in constraints:
                     raise SQLSyntaxError(f"Duplicate constraint: FOREIGN KEY", adjust_pos=-2)
-                constraints.append('FOREIGN KEY')
+
+                self.expect('REFERENCES')
+                table = self.parse_table()
+                self.expect('(')
+                column = self.parse_column()
+                self.expect(')')
+                constraints.append(f'FOREIGN KEY {table} {column}')
 
             elif token.type == 'UNIQUE':
                 self.advance()
@@ -210,7 +250,6 @@ class Parser:
             elif token.type == 'DEFAULT':
                 self.advance()
                 default_value = self.parse_literal()
-                self.advance()
                 constraint = f'DEFAULT {default_value}'
                 if any(c.startswith('DEFAULT') for c in constraints):
                     raise SQLSyntaxError(f"Duplicate DEFAULT constraint", adjust_pos=-1)
@@ -224,13 +263,13 @@ class Parser:
         self.expect('BY')
         orderings = []
         while True:
-            columns = self.parse_identifier_list('COLUMN')
+            column = self.parse_column()
             peeked = self.peek()
             if peeked.type not in ('ASC', 'DESC'):
                 raise SQLSyntaxError(f"Expected 'ASC' or 'DESC', found {self.peek().type}")
             direction = peeked.type
             self.advance()
-            orderings.append((columns, direction))
+            orderings.append((column, direction))
             if self.peek().type != 'COMMA':
                 break
             self.advance()  # skip comma
@@ -240,7 +279,7 @@ class Parser:
         assignments = []
 
         while True:
-            column = self.parse_identifier('COLUMN')
+            column = self.parse_column()
             self.expect('=')
             literal = self.parse_literal()
             assignments.append((column, literal))
@@ -252,21 +291,11 @@ class Parser:
         return assignments
 
     def parse_column_type(self):
-        """Parses column type with size if required"""
+        """Parses column type without size"""
         peeked = self.peek()
         if peeked.type in self.tokenizer.column_types:
             self.advance()
-            if peeked.type in ('TEXT', 'BLOB'):  # need size
-                self.expect("(")
-                peeked2 = self.peek()
-                if peeked2.type != 'NUMBER':
-                    raise SQLSyntaxError(f"Expected size, found {peeked2}")
-                self.advance()
-                size = peeked2.value
-                self.expect(")")
-                return peeked.type, size
             return peeked.type
-
         raise SQLSyntaxError(f"Expected column type ({format_options(self.tokenizer.column_types)}), found {peeked}")
 
     def parse_expression(self):
@@ -307,9 +336,9 @@ class Parser:
 
         if token.type == 'BOOLEAN':
             self.advance()
-            return Literal(type='BOOLEAN', value=token.value)
+            return BOOL(token.value)
 
-        left = self.parse_identifier('COLUMN')
+        left = self.parse_column()
         peeked = self.peek()
 
         if peeked.type == 'IS':
@@ -337,7 +366,7 @@ class Parser:
             right = self.parse_literal()
         except SQLSyntaxError:
             if token.type == 'IDENTIFIER':
-                right = self.parse_identifier('COLUMN')
+                right = self.parse_column()
             else:
                 raise SQLSyntaxError(f"Expected identifier or literal after operator, found {token}")
 
@@ -354,10 +383,10 @@ class Parser:
             self.advance()
             columns = ['*']
         else:
-            columns = self.parse_identifier_list('COLUMN')
+            columns = self.parse_columns()
 
         self.expect('FROM')
-        tables = self.parse_identifier_list('TABLE')
+        tables = self.parse_tables()
 
         where_expr = None
         if self.peek().type == 'WHERE':
@@ -375,10 +404,10 @@ class Parser:
         self.expect('INSERT')
         self.expect('INTO')
 
-        table = self.parse_identifier('TABLE')
+        table = self.parse_table()
 
         self.expect('(')
-        columns = self.parse_identifier_list('COLUMN')
+        columns = self.parse_columns()
         self.expect(')')
 
         self.expect('VALUES')
@@ -392,7 +421,7 @@ class Parser:
     def parse_update(self):
         """UPDATE <table> SET <column>=<value> [, <column>=<value> ...] [WHERE <condition>]"""
         self.expect('UPDATE')
-        table = self.parse_identifier('TABLE')
+        table = self.parse_table()
         self.expect('SET')
         assignments = self.parse_assignments()
 
@@ -407,7 +436,7 @@ class Parser:
         self.expect('DELETE')
         if self.peek().type == 'FROM':
             self.advance()
-        table = self.parse_identifier('TABLE')
+        table = self.parse_table()
 
         where_expr = None
         if self.peek().type == 'WHERE':
@@ -419,12 +448,12 @@ class Parser:
         """CREATE TABLE <table_name> (<column_name1> <data_type1> <constraints>, <column_name2> <data_type2> <constraints> ...)"""
         self.expect('CREATE')
         self.expect('TABLE')
-        table = self.parse_identifier('TABLE')
+        table = self.parse_table()
         self.expect('(')
 
         columns = []
         while True:
-            col_name = self.parse_identifier('COLUMN')
+            col_name = self.parse_column()
             col_type = self.parse_column_type()
 
             constraints = self.parse_constraints()
@@ -442,7 +471,7 @@ class Parser:
         """DROP TABLE <table_name> [, <table_name2> ...]"""
         self.expect('DROP')
         self.expect('TABLE')
-        tables = self.parse_identifier_list('TABLE')
+        tables = self.parse_tables()
         return DropStmt(tables)
 
     def parse_alter(self):
@@ -454,7 +483,7 @@ class Parser:
         self.expect('ALTER')
         self.expect('TABLE')
 
-        table = self.parse_identifier('TABLE')
+        table = self.parse_table()
         expected = ['ADD', 'DROP', 'RENAME', 'MODIFY']
         if self.peek().type not in expected:
             raise SQLSyntaxError(f"Expected {format_options(expected)}, found {self.peek()}")
@@ -464,13 +493,13 @@ class Parser:
         self.expect('COLUMN')
 
         if action == 'ADD':
-            col_name = self.parse_identifier('COLUMN')
+            col_name = self.parse_column()
             col_type = self.parse_column_type()
             constraints = self.parse_constraints()
             return AlterStmt(table, action, (col_name, col_type, constraints))
 
         elif action == 'DROP':
-            col_name = self.parse_identifier('COLUMN')
+            col_name = self.parse_column()
             peeked = self.peek()
             drop_type = "RESTRICT"
             if peeked.type in ('CASCADE', 'RESTRICT'):
@@ -479,13 +508,13 @@ class Parser:
             return AlterStmt(table, action, (col_name, drop_type))
 
         elif action == 'RENAME':
-            old_name = self.parse_identifier('COLUMN')
+            old_name = self.parse_column()
             self.expect('TO')
-            new_name = self.parse_identifier('NEW_COLUMN')
+            new_name = self.parse_identifier('NEW_COLUMN')  # todo
             return AlterStmt(table, action, (old_name, new_name))
 
         elif action == 'MODIFY':
-            col_name = self.parse_identifier('COLUMN')
+            col_name = self.parse_column()
             col_type = self.parse_column_type()
             constraints = self.parse_constraints()
             return AlterStmt(table, action, (col_name, col_type, constraints))
@@ -501,5 +530,5 @@ class Parser:
 # sql = "ALTER TABLE employees RENAME COLUMN nam1 TO name2"
 # sql = "ALTER TABLE employees MODIFY COLUMN age TEXT(1) NOT NULL"
 # sql = "SELECT users.id, users.name FROM users WHERE false"
-# ast = Parser(sql).parse()
+# ast = Parser().parse(sql)
 # print(ast)

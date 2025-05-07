@@ -26,15 +26,22 @@ class SQLSyntaxError(RegretDBError):
     def __str__(self):
         return self.message + "\n" + get_pretty_error(self.sql, self.tokens, self.pos, self.adjust_pos)
 
+class ExecutingError(RegretDBError):
+    def __init__(self, message):
+        self.message = message
 
+    def __str__(self):
+        return self.message
 class PreProcessorError(RegretDBError):
-    def __init__(self, message, word, sql_stmt=None):
+    def __init__(self, message, word=None, sql_stmt=None):
         self.message = message
         self.word = word
         self.sql_stmt = sql_stmt
         super().__init__(message)
 
     def __str__(self):
+        if not self.word:
+            return self.message
         underline = [' ' for _ in self.sql_stmt]
         word_len = len(self.word)
         idx = 0
@@ -44,18 +51,21 @@ class PreProcessorError(RegretDBError):
             if idx == -1:
                 break
 
-            # Characters before and after
+            # Characters before and after the match
             before = self.sql_stmt[idx - 1] if idx > 0 else ''
             after = self.sql_stmt[idx + word_len] if idx + word_len < len(self.sql_stmt) else ''
 
+            # Skip if surrounded by single quotes (string literal)
             if before == "'" and after == "'":
                 idx += word_len
                 continue
 
-            if (before.isalnum() or before == '_') or (after.isalnum() or after == '_'):
+            # Skip if part of a longer identifier or dotted identifier
+            if before in "._" or before.isalnum() or after in "._" or after.isalnum():
                 idx += word_len
                 continue
 
+            # Mark the word with ^
             for i in range(word_len):
                 if idx + i < len(underline):
                     underline[idx + i] = '^'

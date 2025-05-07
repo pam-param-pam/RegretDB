@@ -19,4 +19,4 @@ class Literal:
         return f"{self.type}({self.value})"
 
     def __repr__(self):
-        return self.value
+        return f"{self.type}({self.value})"
