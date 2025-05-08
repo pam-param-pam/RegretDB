@@ -1,6 +1,16 @@
-from ASTNodes import SelectStmt, InsertStmt, UpdateStmt, DeleteStmt, CreateStmt, DropStmt, AlterAddStmt, AlterModifyStmt, AlterRenameStmt, AlterDropStmt
+from ASTNodes.AlterNodes import AlterAddStmt, AlterRenameStmt, AlterModifyStmt, AlterDropStmt
+from ASTNodes.CreateNode import CreateStmt
+from ASTNodes.DeleteNode import DeleteStmt
+from ASTNodes.DropNode import DropStmt
+from ASTNodes.InsertNode import InsertStmt
+from ASTNodes.SelectNode import SelectStmt
+from ASTNodes.UpdateNode import UpdateStmt
 from Exceptions import RegretDBError
-from PlanNodes import TableScan, CrossJoin, Filter, Project, Sort, CreateTable, Insert, Visualize, Update, DropTable
+from PlanNodes.CreatePlanNodes import CreateTable
+from PlanNodes.DropTablePlanNode import DropTable
+from PlanNodes.InsertPlanNode import Insert
+from PlanNodes.SelectPlanNodes import TableScan, Filter, CrossJoin, Project, Sort, Visualize
+from PlanNodes.UpdatePlanNode import Update
 
 
 class ExecutionPlanner:
@@ -28,25 +38,21 @@ class ExecutionPlanner:
 
             # Step 6: Visualize
             plan = Visualize(plan)
-            # print(plan)
+
             return plan
         elif isinstance(statement, InsertStmt):
             return Insert(table_name=statement.table, columns=statement.columns, values=statement.values)
-            # todo check uniqness combined with constraints
         elif isinstance(statement, UpdateStmt):
             # Step 1: Scan the target table
-            scan = TableScan(statement.table.value)
+            scan = TableScan(statement.table)
 
             # Step 2: Filter rows using WHERE clause
             plan = scan
-            if statement.where:
-                plan = Filter(plan, statement.where)
+            if statement.where_expr:
+                plan = Filter(plan, statement.where_expr)
 
             # Step 3: Apply SET operations
-            plan = Update(plan, statement.assignments, table_name=statement.table.value)
-
-            # Step 4: Visualize the plan (optional)
-            plan = Visualize(plan)
+            plan = Update(plan, statement.assignments, table_name=statement.table)
 
             return plan
         elif isinstance(statement, DeleteStmt):

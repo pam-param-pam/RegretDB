@@ -1,4 +1,5 @@
 from ASTNodes.BaseNode import ASTNode
+from DataManager import data_manager
 from Exceptions import PreProcessorError
 
 
@@ -21,18 +22,19 @@ class InsertStmt(ASTNode):
         self.table = self.table.value
         self.columns = [column.value for column in self.columns]
 
+        self.check_table(self.table)
         tables = [self.table]
-        self.check_tables(tables)
 
         # Checking columns and qualifying them
         self.columns = self.check_columns(tables, self.columns)
 
         for col, val in zip(self.columns, self.values):
-            self.check_type(col, val)
+            self.check_type(self.table, col, val)
 
         # Check for NOT NULL constraint violations on unspecified columns
-        for col in self.table_columns[self.table]:
+        table_constraints = data_manager.get_constraint_for_table(self.table)
+        for col in data_manager.get_columns_for_table(self.table):
             if col not in self.columns:
-                for constraint in self.column_constraints[col]:
+                for constraint in table_constraints[col]:
                     if constraint.type == "NOT NULL":
                         raise PreProcessorError(f"ERROR: Column '{col}' must be specified (NOT NULL constraint)")

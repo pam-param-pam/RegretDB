@@ -14,7 +14,7 @@ class CreateStmt(ASTNode):
 
     def perform_checks(self):
         # STEP 1. Verify a table doesn't already exist
-        if self.table_columns.get(self.name):
+        if data_manager.does_table_exist(self.name):
             raise PreProcessorError(f"ERROR: Table '{self.name}' already exists")
 
         seen_columns = set()
@@ -56,15 +56,15 @@ class CreateStmt(ASTNode):
                     referenced_table, referenced_column = self.split_column(referenced_qualified_col)
 
                     # Check if the referenced table exists
-                    if referenced_table not in data_manager.tables:
+                    if not data_manager.does_table_exist(referenced_table):
                         raise PreProcessorError(f"ERROR: Referenced table '{referenced_table}' does not exist in the database")
 
                     # Check if the referenced column exists in the referenced table
-                    if referenced_qualified_col not in data_manager.table_columns[referenced_table]:
+                    if referenced_qualified_col not in data_manager.get_columns_for_table(referenced_table):
                         raise PreProcessorError(f"ERROR: Referenced column '{referenced_column}' does not exist in table '{referenced_table}'")
 
                     # Check if the types match (this assumes both columns have the same type)
-                    referenced_column_type = data_manager.column_types[referenced_qualified_col]
+                    referenced_column_type = data_manager.get_column_types_for_table(referenced_table)[referenced_qualified_col]
 
                     if referenced_column_type != col_type:
                         raise PreProcessorError(

@@ -9,7 +9,7 @@ class TableScan(PlanNode):
         self.table = table
 
     def execute(self):
-        return data_manager.tables[self.table]
+        return data_manager.get_tables_data(self.table)
 
     def __str__(self, level=0):
         return f"TableScan('{self.table}')"
@@ -24,6 +24,8 @@ class Filter(PlanNode):
     def execute(self):
         filtered_rows = []
         for row in self.source.execute():
+            # print(row)
+            # print(self.condition)
             if self.condition.execute(row):
                 filtered_rows.append(row)
         return filtered_rows

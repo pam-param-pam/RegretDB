@@ -22,9 +22,10 @@ class Literal:
         return f"{self.type}({self.value})"
 
 class Constraint:
-    def __init__(self, type, arg1=None):
+    def __init__(self, type, arg1=None, arg2=None):
         self.type = type  # PRIMARY KEY, NOT NULL, FOREIGN KEY, UNIQUE, DEFAULT
-        self.arg1 = arg1
+        self.arg1 = arg1  # Used in default and in foreign key
+        self.arg2 = arg2  # Used in foreign key on update
 
     def __str__(self):
         if self.arg1:

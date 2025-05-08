@@ -9,13 +9,9 @@ class CreateTable(PlanNode):
         self.columns = columns
 
     def execute(self):
-
-        col_names = [col[0] for col in self.columns]
         col_types = {col[0]: col[1] for col in self.columns}
         col_constraints = {col[0]: col[2] for col in self.columns}
 
-        data_manager.add_table_columns(self.name, col_names)
-        data_manager.add_column_types(col_types)
-        data_manager.add_column_constraints(col_constraints)
-
-        data_manager.tables[self.name] = []
+        data_manager.add_table(self.name)
+        data_manager.add_column_types(self.name, col_types)
+        data_manager.add_column_constraints(self.name, col_constraints)

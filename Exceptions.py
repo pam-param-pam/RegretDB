@@ -32,6 +32,14 @@ class ExecutingError(RegretDBError):
 
     def __str__(self):
         return self.message
+
+class IntegrityError(RegretDBError):
+    def __init__(self, message):
+        self.message = message
+
+    def __str__(self):
+        return self.message
+
 class PreProcessorError(RegretDBError):
     def __init__(self, message, word=None, sql_stmt=None):
         self.message = message

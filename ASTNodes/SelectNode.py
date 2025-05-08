@@ -26,11 +26,11 @@ class SelectStmt(ASTNode):
         for col in self.columns:
             if col == '*':
                 for table in self.tables:
-                    expanded_columns.extend([col_name for col_name in data_manager.table_columns[table]])
+                    expanded_columns.extend([col_name for col_name in data_manager.get_columns_for_table(table)])
             elif col.endswith('.*'):
                 table_name = col[:-2]
-                self.check_tables([table_name])
-                expanded_columns.extend([col_name for col_name in data_manager.table_columns[table_name]])
+                self.check_table(table_name)
+                expanded_columns.extend([col_name for col_name in data_manager.get_columns_for_table(table_name)])
             else:
                 PreProcessorError(f"Unable to expand: {col}")
 

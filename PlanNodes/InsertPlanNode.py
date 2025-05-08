@@ -13,39 +13,41 @@ class Insert(PlanNode):
     def execute(self):
         # Build row as dictionary {col_name: value}
         row = {}
-        table = data_manager.tables[self.table_name]
-        schema = data_manager.table_columns[self.table_name]  # List of fully qualified column names
+        table_data = data_manager.get_tables_data(self.table_name)
+        all_columns = data_manager.get_columns_for_table(self.table_name)
+
+        table_constraints = data_manager.get_constraint_for_table(self.table_name)
 
         for col_name, value in zip(self.columns, self.values):
-            col_key = col_name  # already fully qualified like 'users.id'
-            row[col_key] = value.value  # assign early for check to access
+            value = value.value
 
-            constraints = data_manager.column_constraints[col_key]
-
-            for constraint in constraints:
-                # check if inserted row is unique
+            for constraint in table_constraints[col_name]:
+                # check if inserted value is unique
                 if constraint.type in ['PRIMARY KEY', 'UNIQUE']:
-                    if self._check_unique_constraint(table, col_key, value.value):
-                        raise ExecutingError(f"Violation of {constraint} constraint on column {col_key}")
+                    if self._check_if_unique(table_data, col_name, value):
+                        raise ExecutingError(f"Violation of {constraint} constraint on column {col_name}, it must be unique.")
+
+                if constraint.type == 'FOREIGN KEY':
+                    self._validate_foreign_key(constraint, value)
+
+            row[col_name] = value
 
         # Fill in missing columns with None
-        for col in schema:
+        for col in all_columns:
             if col not in row:
                 # finding default value if constraint exists
                 default_value = None
-                constraints = data_manager.column_constraints.get(col)
-                for constraint in constraints:
+                for constraint in table_constraints[col]:
                     if constraint.type == 'DEFAULT':
                         default_value = constraint.arg1.value
                 row[col] = default_value
 
         # No violations, safe to insert
-        table = data_manager.tables[self.table_name]
-        table.append(row)
+        data_manager.insert_row(self.table_name, row)
 
-    def _check_unique_constraint(self, table, column, value):
+    def _check_if_unique(self, table, column, value):
         """
-        Check if `value` already exists in `column` for any row in `table`.
+        Check if `value` is unique across the table.
         """
         for existing_row in table:
             if existing_row.get(column) == value:

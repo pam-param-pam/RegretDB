@@ -32,6 +32,13 @@ class ForeignKeyManager:
                 return True
         return False
 
+    def is_table_referenced(self, table_name):
+        for fk in self.foreign_keys:
+            referenced_table = fk.referenced_column.split('.')[0]
+            if referenced_table == table_name:
+                return True
+        return False
+
     def __str__(self):
         # Return a human-readable string representation of all foreign key relationships
         if not self.foreign_keys:

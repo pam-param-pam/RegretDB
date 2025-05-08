@@ -8,9 +8,6 @@ from TokenTypes import Identifier, Literal
 
 class ASTNode(ABC):
     def __init__(self):
-        self.column_constraints = data_manager.get_column_constraints()
-        self.column_types = data_manager.get_column_types()
-        self.table_columns = data_manager.get_table_columns()
         self.sql_text = None
 
     def verify(self):
@@ -33,14 +30,17 @@ class ASTNode(ABC):
     def set_sql_text(self, sql_text):
         self.sql_text = sql_text
 
+    def check_table(self, table):
+        if not data_manager.does_table_exist(table):
+            raise PreProcessorError(f"Table '{table}' not found.", word=table)
+
     def check_tables(self, tables):
         """Checks if all tables exist in the schema and checks for duplicates."""
         seen = set()
         for table in tables:
             if table in seen:
                 raise PreProcessorError(f"Duplicate table '{table}' found.", word=table)
-            if table not in self.table_columns.keys():
-                raise PreProcessorError(f"Table '{table}' not found.", word=table)
+            self.check_table(table)
             seen.add(table)
 
     def check_column(self, tables, column):
@@ -60,10 +60,7 @@ class ASTNode(ABC):
 
         qualified_col_name = f"{table_name}.{col_name}"
 
-        # columns = self.table_columns.get(table_name)
-        # if not columns:
-        #     raise PreProcessorError(f"Table '{table_name}' not found", word=table_name)
-        if qualified_col_name not in self.table_columns[table_name]:
+        if qualified_col_name not in data_manager.get_columns_for_table(table_name):
             raise PreProcessorError(f"Column '{col_name}' not found in table '{table_name}'", word=col_name)
 
         if flag:
@@ -96,6 +93,7 @@ class ASTNode(ABC):
 
     def check_expression(self, tables, where_expr):
         """checks all columns and qualifies them"""
+
         def recurse(node):
             if isinstance(node, Operator):
                 node.left = recurse(node.left)
@@ -113,10 +111,10 @@ class ASTNode(ABC):
 
         return recurse(where_expr)
 
-    def check_type(self, column, value):
+    def check_type(self, table, column, value):
         """checks type compared the SCHEMA, checks if constraints allow for NULL value"""
-        expected_type = self.column_types[column]
-        constraints = self.column_constraints[column]
+        expected_type = data_manager.get_column_types_for_table(table)[column]
+        constraints = data_manager.get_constraint_for_table(table)[column]
 
         # Nullability check
         if not value.value and any(keyword in constraint.type for constraint in constraints for keyword in ('NOT NULL', 'PRIMARY KEY', 'FOREIGN KEY')):

@@ -13,7 +13,8 @@ class DropStmt(ASTNode):
 
     def perform_checks(self):
         self.table = self.table.value
-        self.check_tables([self.table])
-        for column in self.table_columns[self.table]:
-            if len(data_manager.foreign_key_manager.get_columns_foreign_keys(column)) > 0:
-                raise PreProcessorError(f"Unable to drop table '{self.table}'. Foreign key references exist")
+        self.check_table(self.table)
+        for column in data_manager.get_columns_for_table(self.table):
+            referenced = data_manager.foreign_key_manager.get_columns_foreign_keys(column)
+            if len(referenced) > 0:
+                raise PreProcessorError(f"Unable to drop table '{self.table}'. Foreign key references exist: {referenced}")

@@ -38,35 +38,45 @@ db_engine = RegretDB()
 sql = "CREATE TABLE users (id NUMBER PRIMARY KEY, name TEXT default 'ALICE')"
 db_engine.execute_order_66(sql)
 # sql = "SELECT users.name FROM users, orders WHERE True"
-# sql = "CREATE TABLE orders (id NUMBER PRIMARY KEY DEFAULT 1, user_id NUMBER FOREIGN KEY REFERENCES users(id))"
-# db_engine.execute_order_66(sql)
+sql = "CREATE TABLE orders (id NUMBER PRIMARY KEY, user_id NUMBER FOREIGN KEY REFERENCES users(id))"
+db_engine.execute_order_66(sql)
 # sql = "CREATE TABLE ala (id NUMBER PRIMARY KEY DEFAULT 1, user_id NUMBER FOREIGN KEY REFERENCES users(id))"
 # db_engine.execute_order_66(sql)
 # print(data_manager.table_columns)
+sql = "INSERT INTO users (id) VALUES (1)"
+db_engine.execute_order_66(sql)
+sql = "INSERT INTO users (id) VALUES (7)"
+db_engine.execute_order_66(sql)
+sql = "INSERT INTO orders (id, user_id) VALUES (1, 1)"
+db_engine.execute_order_66(sql)
+sql = "INSERT INTO orders (id, user_id) VALUES (2, 7)"
+db_engine.execute_order_66(sql)
 
-# sql = "INSERT INTO orders (id, user_id) VALUES (1, 1)"
-# db_engine.execute_order_66(sql)
-# sql = "INSERT INTO users (id) VALUES (1)"
-# db_engine.execute_order_66(sql)
-# sql = "INSERT INTO users (name, id) VALUES ('Bob', 2)"
-# db_engine.execute_order_66(sql)
-# sql = "INSERT INTO users (name, id) VALUES ('Charlie', 3)"
-# db_engine.execute_order_66(sql)
-# sql = "INSERT INTO users (name, id) VALUES ('Hughie', 4)"
-# db_engine.execute_order_66(sql)
-# sql = "INSERT INTO users (name, id) VALUES ('Leyla', 5)"
-# db_engine.execute_order_66(sql)
+sql = "INSERT INTO users (name, id) VALUES ('Ash', 2)"
+db_engine.execute_order_66(sql)
+sql = "INSERT INTO users (name, id) VALUES ('Laura', 3)"
+db_engine.execute_order_66(sql)
+sql = "INSERT INTO users (name, id) VALUES ('Hughie', 4)"
+db_engine.execute_order_66(sql)
+sql = "INSERT INTO users (name, id) VALUES ('Leyla', 5)"
+db_engine.execute_order_66(sql)
 
 # print(data_manager.column_constraints)
 # print(data_manager.tables)
-# sql = "UPDATE users SET id=11"
-# db_engine.execute_order_66(sql)
-sql = "SELECT * FROM users"
+sql = "SELECT * FROM orders"
 db_engine.execute_order_66(sql)
-sql = "DROP TABLE users"
+sql = "UPDATE orders SET user_id=5 where user_id=1 or user_id=7"
 db_engine.execute_order_66(sql)
-sql = "SELECT * FROM users"
+sql = "UPDATE users SET id=10 where id=5"
 db_engine.execute_order_66(sql)
+sql = "SELECT * FROM orders "
 
-print(data_manager.foreign_key_manager)
-print(data_manager.foreign_key_manager.get_columns_foreign_keys('users.id'))
+# todo check during update for foreign key, if updated row has column with constraint foreign key referencing another row then whoopsie
+
+db_engine.execute_order_66(sql)
+# sql = "SELECT * FROM orders"
+# db_engine.execute_order_66(sql)
+
+
+# print(data_manager.foreign_key_manager)
+# print(data_manager.foreign_key_manager.get_columns_foreign_keys('users.id'))

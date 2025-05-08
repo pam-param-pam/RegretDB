@@ -1,3 +1,8 @@
+from DataManager import data_manager
+from Exceptions import ExecutingError
+from PlanNodes.BasePlanNode import PlanNode
+from utility import indent
+
 
 class Update(PlanNode):
     def __init__(self, source, assignments, table_name):
@@ -8,8 +13,8 @@ class Update(PlanNode):
 
     def execute(self):
         rows = self.source.execute()
-        table = data_manager.tables[self.table_name]
-        constraints = data_manager.column_constraints.get(self.table_name, {})
+        table = data_manager.get_tables_data(self.table_name)
+        constraints = data_manager.get_constraint_for_table(self.table_name)
 
         updated_rows = []
 
@@ -19,59 +24,42 @@ class Update(PlanNode):
 
             # Apply assignments
             for column, new_value in self.assignments:
-                updated_row[column.value] = new_value.value
+                updated_row[column] = new_value
 
-            # Check uniqueness constraints
-            for constraint in data_manager.table_constraints.get(self.table_name, []):
-                if constraint.type in ("PRIMARY KEY", "UNIQUE"):
-                    if self._violates_unique_constraint(constraint, updated_row, table, original_row):
-                        raise ExecutingError(
-                            f"Update violates {constraint.type} constraint on columns {', '.join(constraint.columns)}"
-                        )
+            # Check unique/primary key constraints
+            for col_name, col_constraints in constraints.items():
+                # print(col_name)
+                for constraint in col_constraints:
+                    if constraint.type in ("PRIMARY KEY", "UNIQUE"):
+                        print(col_name)
+                        if self._violates_unique_constraint(col_name, updated_row, table, updated_rows, original_row):
+                            raise ExecutingError(f"Update violates {constraint.type} constraint on column {col_name}")
 
             # Check foreign key constraints
-            for constraint in data_manager.table_constraints.get(self.table_name, []):
-                if constraint.type == "FOREIGN KEY":
-                    # If the updated columns include the foreign key column, check for referential integrity
-                    if any(col in updated_row for col in constraint.columns):
-                        self._validate_foreign_key(constraint, updated_row)
+            for col_name, col_constraints in constraints.items():
+                for constraint in col_constraints:
+                    if constraint.type == "FOREIGN KEY" and col_name in updated_row:
+                        self._validate_foreign_key(constraint, updated_row[col_name])
 
             updated_rows.append(updated_row)
 
-        # Apply updates back to table
+        # Apply updates to the actual table
         for i, row in enumerate(rows):
             idx = table.index(row)
             table[idx] = updated_rows[i]
 
-        return []
+    def _violates_unique_constraint(self, col, new_row, table, updated_rows, original_row):
 
-    def _violates_unique_constraint(self, constraint, new_row, table, original_row):
         for existing_row in table:
             if existing_row == original_row:
                 continue  # skip self
-            if all(existing_row[col] == new_row[col] for col in constraint.columns):
+            if existing_row.get(col) == new_row.get(col):
                 return True
+        for new_updated_row in updated_rows:
+            if new_updated_row.get(col) == new_row.get(col):
+                return True
+
         return False
-
-    def _validate_foreign_key(self, constraint, row):
-        ref_table = constraint.references_table
-        ref_columns = constraint.references_columns
-        fk_values = [row.get(col) for col in constraint.columns]
-
-        if None in fk_values:
-            return  # allow nulls in foreign keys
-
-        found = any(
-            all(existing_row.get(ref_col) == val for ref_col, val in zip(ref_columns, fk_values))
-            for existing_row in data_manager.tables[ref_table]
-        )
-
-        if not found:
-            raise ExecutingError(
-                f"Update violates FOREIGN KEY constraint: no matching row in {ref_table} for values {fk_values}"
-            )
 
     def __str__(self, level=0):
         return f"UpdatePlan(\n{indent(level)}assignments={self.assignments},\n{indent(level)}source={self.source.__str__(level + 1)}\n{indent(level - 1)})"
-
-

@@ -1,6 +1,12 @@
 import re
 
-from ASTNodes import *
+from ASTNodes.AlterNodes import AlterAddStmt, AlterDropStmt, AlterRenameStmt, AlterModifyStmt
+from ASTNodes.CreateNode import CreateStmt
+from ASTNodes.DeleteNode import DeleteStmt
+from ASTNodes.DropNode import DropStmt
+from ASTNodes.InsertNode import InsertStmt
+from ASTNodes.SelectNode import SelectStmt
+from ASTNodes.UpdateNode import UpdateStmt
 from Exceptions import SQLSyntaxError, RegretDBError
 from Operators.LogicalOperators import OR, AND, IS_NOT_NULL, IS_NULL, LE, GE, LT, GT, NE, EG, NOT, BOOL
 from TokenTypes import Identifier, Literal, Constraint
@@ -244,6 +250,7 @@ class Parser:
                 self.expect('(')
                 column = self.parse_column()
                 self.expect(')')
+                # TODO ON UPDATE CASCADE/RESTRICT
                 constraints.append(Constraint(type='FOREIGN KEY', arg1=f"{table.value}.{column.value}"))
 
             elif token.type == 'UNIQUE':
@@ -424,7 +431,7 @@ class Parser:
         return InsertStmt(table, columns, values)
 
     def parse_update(self):
-        """UPDATE <table> SET <column>=<value> [, <column>=<value> ...] [WHERE <condition>]"""
+        """UPDATE <table> SET <column>=<value> [, <column>=<value> ...] [WHERE <condition>] """
         self.expect('UPDATE')
         table = self.parse_table()
         self.expect('SET')
