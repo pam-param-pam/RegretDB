@@ -7,6 +7,7 @@ from ASTNodes.SelectNode import SelectStmt
 from ASTNodes.UpdateNode import UpdateStmt
 from Exceptions import RegretDBError
 from PlanNodes.CreatePlanNodes import CreateTable
+from PlanNodes.DeletePlanNode import Delete
 from PlanNodes.DropTablePlanNode import DropTable
 from PlanNodes.InsertPlanNode import Insert
 from PlanNodes.SelectPlanNodes import TableScan, Filter, CrossJoin, Project, Sort, Visualize
@@ -51,12 +52,23 @@ class ExecutionPlanner:
             if statement.where_expr:
                 plan = Filter(plan, statement.where_expr)
 
-            # Step 3: Apply SET operations
+            # Step 3: Apply Update operations
             plan = Update(plan, statement.assignments, table_name=statement.table)
 
             return plan
         elif isinstance(statement, DeleteStmt):
-            pass
+            # Step 1: Scan the target table
+            scan = TableScan(statement.table)
+
+            # Step 2: Filter rows using WHERE clause
+            plan = scan
+            if statement.where_expr:
+                plan = Filter(plan, statement.where_expr)
+
+            # Step 3: Apply Delete operations
+            plan = Delete(plan, table=statement.table, where_expr=statement.where_expr)
+
+            return plan
         elif isinstance(statement, CreateStmt):
             return CreateTable(name=statement.name, columns=statement.columns)
 

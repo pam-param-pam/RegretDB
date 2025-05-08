@@ -22,24 +22,30 @@ class Update(PlanNode):
             original_row = row.copy()
             updated_row = row.copy()
 
-            # Apply assignments
             for column, new_value in self.assignments:
+                old_value = original_row[column]
+
+                # Apply assignments
                 updated_row[column] = new_value
 
-            # Check unique/primary key constraints
-            for col_name, col_constraints in constraints.items():
-                # print(col_name)
-                for constraint in col_constraints:
+                for constraint in constraints[column]:
+                    # checks uniqueness
                     if constraint.type in ("PRIMARY KEY", "UNIQUE"):
-                        print(col_name)
-                        if self._violates_unique_constraint(col_name, updated_row, table, updated_rows, original_row):
-                            raise ExecutingError(f"Update violates {constraint.type} constraint on column {col_name}")
+                        if self._violates_unique_constraint(column, updated_row, table, updated_rows, original_row):
+                            raise ExecutingError(f"Update violates {constraint.type} constraint on column {column}")
 
-            # Check foreign key constraints
-            for col_name, col_constraints in constraints.items():
-                for constraint in col_constraints:
-                    if constraint.type == "FOREIGN KEY" and col_name in updated_row:
-                        self._validate_foreign_key(constraint, updated_row[col_name])
+                    # checks if foreign key blocks the update
+                    if constraint.type == "FOREIGN KEY" and column in updated_row:
+                        self._validate_foreign_key(constraint, updated_row[column])
+
+                for fk in data_manager.foreign_key_manager.get_columns_foreign_keys(column):
+                    # Someone else points to this column
+                    ref_table, ref_col = fk.referencing_column.split(".")
+                    referencing_rows = data_manager.get_tables_data(ref_table)
+
+                    for r in referencing_rows:
+                        if r.get(column) == old_value:
+                            raise ExecutingError(f"Cannot update '{column}' from {old_value} to {new_value}: it is referenced in '{r}'")
 
             updated_rows.append(updated_row)
 
@@ -49,7 +55,6 @@ class Update(PlanNode):
             table[idx] = updated_rows[i]
 
     def _violates_unique_constraint(self, col, new_row, table, updated_rows, original_row):
-
         for existing_row in table:
             if existing_row == original_row:
                 continue  # skip self

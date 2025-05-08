@@ -139,9 +139,10 @@ class CrossJoin(PlanNode):
         self.right = right
 
     def execute(self):
-        """Performs a Cartesian product (cross join) between the left and right sources."""
-        left_data = self.left.execute()  # Get data from the left source
-        right_data = self.right.execute()  # Get data from the right source
+        """This is an extremely naive and naive and dangerous approach. I would have made it better if i had the time"""
+
+        left_data = self.left.execute()
+        right_data = self.right.execute()
 
         # Perform cross join (Cartesian product)
         result = []
@@ -154,3 +155,4 @@ class CrossJoin(PlanNode):
 
     def __str__(self, level=0):
         return f"CrossJoinPlan(\n{indent(level)}left={self.left},\n{indent(level)}right={self.right}\n{indent(level - 1)})"
+

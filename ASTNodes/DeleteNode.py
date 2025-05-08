@@ -13,3 +13,5 @@ class DeleteStmt(ASTNode):
     def perform_checks(self):
         self.table = self.table.value
         self.check_table(self.table)
+        self.where_expr = self.check_expression([self.table], self.where_expr)
+

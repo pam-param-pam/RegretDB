@@ -39,8 +39,14 @@ class ForeignKeyManager:
                 return True
         return False
 
+    def get_foreign_keys_referencing(self, column_name):
+        """Return all foreign keys where another table references table_name.column_name."""
+        return [
+            fk for fk in self.foreign_keys
+            if fk.referenced_column == column_name
+        ]
+
     def __str__(self):
-        # Return a human-readable string representation of all foreign key relationships
         if not self.foreign_keys:
             return "No foreign key relationships found."
 

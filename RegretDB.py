@@ -63,20 +63,20 @@ db_engine.execute_order_66(sql)
 
 # print(data_manager.column_constraints)
 # print(data_manager.tables)
-sql = "SELECT * FROM orders"
-db_engine.execute_order_66(sql)
-sql = "UPDATE orders SET user_id=5 where user_id=1 or user_id=7"
-db_engine.execute_order_66(sql)
-sql = "UPDATE users SET id=10 where id=5"
-db_engine.execute_order_66(sql)
-sql = "SELECT * FROM orders "
-
-# todo check during update for foreign key, if updated row has column with constraint foreign key referencing another row then whoopsie
-
-db_engine.execute_order_66(sql)
 # sql = "SELECT * FROM orders"
 # db_engine.execute_order_66(sql)
+sql = "UPDATE orders SET user_id=5 where user_id=1"
+db_engine.execute_order_66(sql)
+# sql = "UPDATE users SET id=10 where id=5"
+# db_engine.execute_order_66(sql)
+# sql = "SELECT * FROM orders "
+# db_engine.execute_order_66(sql)
 
+sql = "DELETE FROM users where id=5"
+# sql = "SELECT * FROM orders"
+db_engine.execute_order_66(sql)
 
+sql = "SELECT * FROM users"
+db_engine.execute_order_66(sql)
 # print(data_manager.foreign_key_manager)
 # print(data_manager.foreign_key_manager.get_columns_foreign_keys('users.id'))

@@ -23,4 +23,4 @@ class PlanNode:
                 found = True
 
         if not found:
-            raise IntegrityError(f"Violation of FOREIGN KEY constraint: no matching value in {ref_table}.{ref_col} for {value}")
+            raise IntegrityError(f"Violation of FOREIGN KEY constraint: no matching value in {referenced_col} for {value}")
