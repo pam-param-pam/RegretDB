@@ -3,7 +3,7 @@ import re
 from ASTNodes import *
 from Exceptions import SQLSyntaxError, RegretDBError
 from Operators.LogicalOperators import OR, AND, IS_NOT_NULL, IS_NULL, LE, GE, LT, GT, NE, EG, NOT, BOOL
-from TokenTypes import Identifier, Literal
+from TokenTypes import Identifier, Literal, Constraint
 from utility import format_options, parse_boolean
 
 class Token:
@@ -184,8 +184,12 @@ class Parser:
         identifier = self.expect('IDENTIFIER').value
         if self.peek().type == 'DOT':
             self.advance()
-            second = self.expect('IDENTIFIER').value
-            return Identifier(type=identifier_type, value=f"{identifier}.{second}")
+            if self.peek().type == 'STAR':
+                self.advance()
+                return Identifier(type=identifier_type, value=f"{identifier}.*")
+            else:
+                second = self.expect('IDENTIFIER').value
+                return Identifier(type=identifier_type, value=f"{identifier}.{second}")
         return Identifier(type=identifier_type, value=identifier)
 
     def parse_identifier_list(self, identifier_type):
@@ -218,21 +222,21 @@ class Parser:
             if token.type == 'NOT':
                 self.advance()
                 self.expect('NULL')
-                if 'NOT NULL' in constraints:
+                if any(constraint.type == 'NOT NULL' for constraint in constraints):
                     raise SQLSyntaxError(f"Duplicate constraint: NOT NULL", adjust_pos=-2)
-                constraints.append('NOT NULL')
+                constraints.append(Constraint(type='NOT NULL'))
 
             elif token.type == 'PRIMARY':
                 self.advance()
                 self.expect('KEY')
-                if 'PRIMARY KEY' in constraints:
+                if any(constraint.type == 'PRIMARY KEY' for constraint in constraints):
                     raise SQLSyntaxError(f"Duplicate constraint: PRIMARY KEY", adjust_pos=-2)
-                constraints.append('PRIMARY KEY')
+                constraints.append(Constraint(type='PRIMARY KEY'))
 
             elif token.type == 'FOREIGN':
                 self.advance()
                 self.expect('KEY')
-                if 'FOREIGN KEY' in constraints:
+                if any(constraint.type == 'FOREIGN KEY' for constraint in constraints):
                     raise SQLSyntaxError(f"Duplicate constraint: FOREIGN KEY", adjust_pos=-2)
 
                 self.expect('REFERENCES')
@@ -240,22 +244,23 @@ class Parser:
                 self.expect('(')
                 column = self.parse_column()
                 self.expect(')')
-                constraints.append(f'FOREIGN KEY {table} {column}')
+                constraints.append(Constraint(type='FOREIGN KEY', arg1=f"{table.value}.{column.value}"))
 
             elif token.type == 'UNIQUE':
                 self.advance()
-                if 'UNIQUE' in constraints:
+                if any(constraint.type == 'UNIQUE' for constraint in constraints):
                     raise SQLSyntaxError(f"Duplicate constraint: UNIQUE", adjust_pos=-1)
-                constraints.append('UNIQUE')
+                constraints.append(Constraint(type='UNIQUE'))
+
             elif token.type == 'DEFAULT':
                 self.advance()
                 default_value = self.parse_literal()
-                constraint = f'DEFAULT {default_value}'
-                if any(c.startswith('DEFAULT') for c in constraints):
+                if any(constraint.type == 'DEFAULT' for constraint in constraints):
                     raise SQLSyntaxError(f"Duplicate DEFAULT constraint", adjust_pos=-1)
-                constraints.append(constraint)
+                constraints.append(Constraint(type='DEFAULT', arg1=default_value))
+
             else:
-                break  # No more constraints
+                break
         return constraints
 
     def parse_order_by(self):
@@ -381,7 +386,7 @@ class Parser:
         self.expect('SELECT')
         if self.peek().type == 'STAR':
             self.advance()
-            columns = ['*']
+            columns = [Identifier(type='COLUMN', value="*")]
         else:
             columns = self.parse_columns()
 
@@ -471,8 +476,8 @@ class Parser:
         """DROP TABLE <table_name> [, <table_name2> ...]"""
         self.expect('DROP')
         self.expect('TABLE')
-        tables = self.parse_tables()
-        return DropStmt(tables)
+        table = self.parse_table()
+        return DropStmt(table)
 
     def parse_alter(self):
         """ALTER TABLE <table_name> [ADD COLUMN <column_name> <data_type> [<constraints>]]
@@ -496,7 +501,7 @@ class Parser:
             col_name = self.parse_column()
             col_type = self.parse_column_type()
             constraints = self.parse_constraints()
-            return AlterStmt(table, action, (col_name, col_type, constraints))
+            return AlterAddStmt(table, col_name, col_type, constraints)
 
         elif action == 'DROP':
             col_name = self.parse_column()
@@ -505,19 +510,19 @@ class Parser:
             if peeked.type in ('CASCADE', 'RESTRICT'):
                 self.advance()
                 drop_type = peeked.type
-            return AlterStmt(table, action, (col_name, drop_type))
+            return AlterDropStmt(table, col_name, drop_type)
 
         elif action == 'RENAME':
             old_name = self.parse_column()
             self.expect('TO')
-            new_name = self.parse_identifier('NEW_COLUMN')  # todo
-            return AlterStmt(table, action, (old_name, new_name))
+            new_name = self.parse_identifier('COLUMN')
+            return AlterRenameStmt(table, old_name, new_name)
 
         elif action == 'MODIFY':
             col_name = self.parse_column()
-            col_type = self.parse_column_type()
-            constraints = self.parse_constraints()
-            return AlterStmt(table, action, (col_name, col_type, constraints))
+            new_col_type = self.parse_column_type()
+            new_constraints = self.parse_constraints()
+            return AlterModifyStmt(table, col_name, new_col_type, new_constraints)
 
 # sql = "SELECT users.id, orders.amount FR1OM users WHERE (orders.amount > 100 and ala = 'name') or (orders.amount > 200 and ala = 'name1') ORDER BY orders.amount ASC, orders.name DESC"
 # sql = "INSERT INTO Customers (CustomerName, ContactName, Address, City, Country) VALUES ('Cardinal', 'Tom B. Erichsen', 'Skagen 21', 'Stavanger', '4006', 'Norway')"

@@ -18,7 +18,7 @@ class Operator(ABC):
     def resolve(self, operand, row):
         if isinstance(operand, Operator):
             return operand.execute(row)
-        if isinstance(operand, str) and operand in row:
+        if isinstance(operand, str) and operand in row:  # else return the value of the column identifier in the row
             return row[operand]
         return operand
 

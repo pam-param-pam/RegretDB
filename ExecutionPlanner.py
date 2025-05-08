@@ -1,6 +1,6 @@
-from ASTNodes import SelectStmt, InsertStmt, UpdateStmt, DeleteStmt, CreateStmt, DropStmt, AlterStmt
+from ASTNodes import SelectStmt, InsertStmt, UpdateStmt, DeleteStmt, CreateStmt, DropStmt, AlterAddStmt, AlterModifyStmt, AlterRenameStmt, AlterDropStmt
 from Exceptions import RegretDBError
-from PlanNodes import TableScan, CrossJoin, Filter, Project, Sort, CreateTable, Insert, Visualize
+from PlanNodes import TableScan, CrossJoin, Filter, Project, Sort, CreateTable, Insert, Visualize, Update, DropTable
 
 
 class ExecutionPlanner:
@@ -34,15 +34,35 @@ class ExecutionPlanner:
             return Insert(table_name=statement.table, columns=statement.columns, values=statement.values)
             # todo check uniqness combined with constraints
         elif isinstance(statement, UpdateStmt):
-            pass
+            # Step 1: Scan the target table
+            scan = TableScan(statement.table.value)
+
+            # Step 2: Filter rows using WHERE clause
+            plan = scan
+            if statement.where:
+                plan = Filter(plan, statement.where)
+
+            # Step 3: Apply SET operations
+            plan = Update(plan, statement.assignments, table_name=statement.table.value)
+
+            # Step 4: Visualize the plan (optional)
+            plan = Visualize(plan)
+
+            return plan
         elif isinstance(statement, DeleteStmt):
             pass
         elif isinstance(statement, CreateStmt):
             return CreateTable(name=statement.name, columns=statement.columns)
 
         elif isinstance(statement, DropStmt):
+            return DropTable(table=statement.table)
+        elif isinstance(statement, AlterAddStmt):
             pass
-        elif isinstance(statement, AlterStmt):
+        elif isinstance(statement, AlterModifyStmt):
+            pass
+        elif isinstance(statement, AlterRenameStmt):
+            pass
+        elif isinstance(statement, AlterDropStmt):
             pass
         else:
             raise RegretDBError(f"Unexpected statement type: {type(statement)}")

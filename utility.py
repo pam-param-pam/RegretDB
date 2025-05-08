@@ -14,7 +14,6 @@ def get_pretty_error(sql, tokens, pos, adjust_pos=0):
         offset = len(sql)
         adjust = 1
         token_length = 1
-    print(token_length)
     return sql + "\n" + (offset + adjust) * " " + "^" * token_length
 
 def format_options(options):

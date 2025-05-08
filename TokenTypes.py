@@ -20,3 +20,24 @@ class Literal:
 
     def __repr__(self):
         return f"{self.type}({self.value})"
+
+class Constraint:
+    def __init__(self, type, arg1=None):
+        self.type = type  # PRIMARY KEY, NOT NULL, FOREIGN KEY, UNIQUE, DEFAULT
+        self.arg1 = arg1
+
+    def __str__(self):
+        if self.arg1:
+            return f"{self.type}({self.arg1})"
+        return f"{self.type}"
+
+    def __repr__(self):
+        return self.__str__()
+
+    def can_be_null(self):
+        pass
+
+    def must_be_unique(self):
+        pass
+
+

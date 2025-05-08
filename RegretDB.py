@@ -23,7 +23,7 @@ class RegretDB:
         """May the 4th be with you"""
         self.statement = self.parser.parse(sql_stmt)
         self.statement.set_sql_text(sql_stmt)
-        print(self.statement)
+        # print(self.statement)
         self.statement.verify()
         self.plan = self.planner.plan(self.statement)
         self.plan.execute()
@@ -32,27 +32,41 @@ class RegretDB:
         # self.plan = None
 
 
+# todo enforce FOREIGN key
 # Example usage:
 db_engine = RegretDB()
+sql = "CREATE TABLE users (id NUMBER PRIMARY KEY, name TEXT default 'ALICE')"
+db_engine.execute_order_66(sql)
 # sql = "SELECT users.name FROM users, orders WHERE True"
-sql = "CREATE TABLE orders (id NUMBER PRIMARY KEY DEFAULT 1, user_id NUMBER FOREIGN KEY REFERENCES users(id) )"
-# todo enforce FOREIGN key
+# sql = "CREATE TABLE orders (id NUMBER PRIMARY KEY DEFAULT 1, user_id NUMBER FOREIGN KEY REFERENCES users(id))"
+# db_engine.execute_order_66(sql)
+# sql = "CREATE TABLE ala (id NUMBER PRIMARY KEY DEFAULT 1, user_id NUMBER FOREIGN KEY REFERENCES users(id))"
+# db_engine.execute_order_66(sql)
+# print(data_manager.table_columns)
+
+# sql = "INSERT INTO orders (id, user_id) VALUES (1, 1)"
+# db_engine.execute_order_66(sql)
+# sql = "INSERT INTO users (id) VALUES (1)"
+# db_engine.execute_order_66(sql)
+# sql = "INSERT INTO users (name, id) VALUES ('Bob', 2)"
+# db_engine.execute_order_66(sql)
+# sql = "INSERT INTO users (name, id) VALUES ('Charlie', 3)"
+# db_engine.execute_order_66(sql)
+# sql = "INSERT INTO users (name, id) VALUES ('Hughie', 4)"
+# db_engine.execute_order_66(sql)
+# sql = "INSERT INTO users (name, id) VALUES ('Leyla', 5)"
+# db_engine.execute_order_66(sql)
+
+# print(data_manager.column_constraints)
+# print(data_manager.tables)
+# sql = "UPDATE users SET id=11"
+# db_engine.execute_order_66(sql)
+sql = "SELECT * FROM users"
 db_engine.execute_order_66(sql)
-sql = "INSERT INTO orders (id, user_id) VALUES (1, 1)"
+sql = "DROP TABLE users"
 db_engine.execute_order_66(sql)
-sql = "CREATE TABLE users (name TEXT , id NUMBER PRIMARY KEY)"
+sql = "SELECT * FROM users"
 db_engine.execute_order_66(sql)
-sql = "INSERT INTO users (name, id) VALUES (NULL, 1)"
-db_engine.execute_order_66(sql)
-sql = "INSERT INTO users (name, id) VALUES ('Bob', 2)"
-db_engine.execute_order_66(sql)
-sql = "INSERT INTO users (name, id) VALUES ('Charlie', 3)"
-db_engine.execute_order_66(sql)
-sql = "INSERT INTO users (name, id) VALUES ('Hughie', 4)"
-db_engine.execute_order_66(sql)
-sql = "INSERT INTO users (name, id) VALUES ('Leyla', 5)"
-db_engine.execute_order_66(sql)
-sql = "SELECT users.id, users.name, orders.id, orders.user_id FROM users, orders WHERE users.id IS NOT NULL ORDER BY users.id ASC, users.name ASC"
-db_engine.execute_order_66(sql)
-print(data_manager.column_constraints)
-print(data_manager.tables)
+
+print(data_manager.foreign_key_manager)
+print(data_manager.foreign_key_manager.get_columns_foreign_keys('users.id'))
