@@ -13,7 +13,17 @@ class AlterAddStmt(ASTNode):
         return f"AlterAddStmt(table={self.table}, new_column={self.column}, col_type={self.col_type}, constraints={self.constraints})"
 
     def perform_checks(self):
-        pass
+        self.table = self.table.value
+        self.check_table(self.table)
+
+        qualified_col_name = f"{self.table}.{self.column}"
+
+        for constraint in self.constraints:
+            self.handle_new_column_constraints(constraint, self.col_type, qualified_col_name, self.table)
+
+            if constraint.type == 'NOT NULL':
+                #todo check if existing records for this table exist
+                pass
 
 
 class AlterDropStmt(ASTNode):
@@ -27,6 +37,13 @@ class AlterDropStmt(ASTNode):
         return f"AlterAddStmt(table={self.table}, column={self.column}, drop_type={self.drop_type})"
 
     def perform_checks(self):
+        self.table = self.table.value
+        self.check_table(self.table)
+
+        # check if column is primary key, if yes disalow it
+
+        # check if column is referenced in foreign key and records exist for that relation
+
         pass
 
 
@@ -41,6 +58,10 @@ class AlterRenameStmt(ASTNode):
         return f"AlterAddStmt(table={self.table}, old_column={self.old_column}, new_column={self.new_column})"
 
     def perform_checks(self):
+        self.table = self.table.value
+        self.check_table(self.table)
+
+        # rename in every data structure including foreign key manager
         pass
 
 
@@ -56,4 +77,13 @@ class AlterModifyStmt(ASTNode):
         return f"AlterAddStmt(table={self.table}, new_column={self.column}, new_column_type={self.new_col_type}, new_constraints={self.new_constraints})"
 
     def perform_checks(self):
+        self.table = self.table.value
+        self.check_table(self.table)
+
+        # validate constraints
+
+        # check if rows exist for this column if yes disalow it
+
+        # check if foreign key relation exists, if yes disalow it
+
         pass
