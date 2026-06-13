@@ -79,23 +79,40 @@ class AlterRenameStmt(ASTNode):
         self.qualified_old_column = QualifiedColumn(table=self.qualified_table, column=self._old_column.value)
         self.qualified_new_column = QualifiedColumn(table=self.qualified_table, column=self._new_column.value)
 
-# todo finish!
 
 class AlterDropStmt(ASTNode):
     def __init__(self, table: Identifier, col_name: Identifier, drop_type: str):
         self._table = table
         self._col_name = col_name
-        self._drop_type = drop_type
+        self.drop_type = drop_type
         self.qualified_table: Optional[QualifiedTable] = None
         self.qualified_column: Optional[QualifiedColumn] = None
         super().__init__()
 
     def __repr__(self):
-        return f"AlterDropStmt(table={self.qualified_table}, column={self.qualified_column}, drop_type={self._drop_type})"
+        return f"AlterDropStmt(table={self.qualified_table}, column={self.qualified_column}, drop_type={self.drop_type})"
 
     def perform_checks(self):
-        pass
+        # 1. Validate table exists and qualify it
+        self.qualified_table = self.check_table(self._table.value, self._table.position)
+        qualified_column = self.check_column([self.qualified_table], self._col_name.value, position=self._col_name.position)
 
+        table_obj = data_manager.get_table(self.qualified_table.name)
+
+        col = table_obj.columns[qualified_column.column]
+
+        # 2. Disallow dropping a PRIMARY KEY column
+        if col.primary_key:
+            raise PreProcessorError(f"Cannot drop PRIMARY KEY column '{col.name}' from table '{self.qualified_table.name}'", position=self._col_name.position)
+
+        # 3. Check for foreign keys referencing this column
+        referencing = data_manager.get_referencing_foreign_keys(self.qualified_table.name, col.name)
+        if referencing:
+            if self.drop_type != 'CASCADE':
+                refs = ', '.join(f"{tbl}.{c}" for tbl, c in referencing)
+                raise PreProcessorError(f"Cannot drop column '{col.name}' – referenced by foreign key(s): {refs}. Use CASCADE.", position=self._col_name.position)
+
+        self.qualified_column = qualified_column
 
 class AlterModifyStmt(ASTNode):
     def __init__(self, table: Identifier, col_name: Identifier, new_col_type: Identifier, new_constraints: List[ConstraintSpec]):
@@ -105,6 +122,7 @@ class AlterModifyStmt(ASTNode):
         self._new_constraints = new_constraints
         self.qualified_table: Optional[QualifiedTable] = None
         self.qualified_column: Optional[QualifiedColumn] = None
+        self.qualified_new_column_spec: Optional[Tuple[QualifiedColumn, str, List[ConstraintSpec]]] = None
         super().__init__()
 
     def __repr__(self):
@@ -112,3 +130,56 @@ class AlterModifyStmt(ASTNode):
 
     def perform_checks(self):
         pass
+        # # 1. Validate table exists and qualify it
+        # self.qualified_table = self.check_table(self._table.value, self._table.position)
+        #
+        # # 2. Qualify the existing column – also checks it exists
+        # self.qualified_column = self.check_column([self.qualified_table], self._col_name.value, position=self._col_name.position)
+        #
+        # table_obj = data_manager.get_table(self.qualified_table.name)
+        # col_name = self.qualified_column.column
+        # existing_col = table_obj.columns[col_name]
+        #
+        # # 3. Basic static checks on the existing column
+        # if existing_col.primary_key:
+        #     raise PreProcessorError(f"Cannot modify PRIMARY KEY column '{col_name}'", position=self._col_name.position)
+        #
+        # if existing_col.foreign_key:
+        #     raise PreProcessorError(f"Cannot modify column '{col_name}' – it has a foreign key constraint", position=self._col_name.position)
+        #
+        # referencing = data_manager.get_referencing_foreign_keys(self.qualified_table.name, col_name)
+        # if referencing:
+        #     refs = ', '.join(f"{tbl}.{c}" for tbl, c in referencing)
+        #     raise PreProcessorError(f"Cannot modify column '{col_name}' – referenced by foreign key(s): {refs}", position=self._col_name.position)
+        #
+        # # 4. If table already has rows, disallow type change (strict, like many dbs)
+        # if table_obj.data and existing_col.data_type != self._new_col_type.value:
+        #     raise PreProcessorError(
+        #         f"Cannot change type of column '{col_name}' from {existing_col.data_type} to {self._new_col_type.value} – table '{self.qualified_table.name}' already contains rows",
+        #         position=self._new_col_type.position
+        #     )
+        #
+        # # 5. Parse the new constraints to see if they are allowed
+        # new_col_type_str = self._new_col_type.value
+        # qualified_full = self.qualified_column.full_name
+        #
+        # # Determine nullability and default from new constraints
+        # is_not_null = any(c.type == 'NOT NULL' for c in self._new_constraints)
+        # has_default = any(c.type == 'DEFAULT' for c in self._new_constraints)
+        #
+        # # If adding NOT NULL and no DEFAULT, and table has rows, we need to verify that no NULLs exist
+        # if is_not_null and not has_default and table_obj.data:
+        #     for row in table_obj.data:
+        #         if row.get(col_name) is None:
+        #             raise PreProcessorError(f"Cannot add NOT NULL constraint to column '{col_name}' – existing NULL values found", position=self._col_name.position)
+        #
+        # # Validate the new constraints against the column (type compatibility, FK existence etc.)
+        # for constraint in self._new_constraints:
+        #     # For FOREIGN KEY, we disallow adding FK via MODIFY
+        #     if constraint.type == 'FOREIGN KEY':
+        #         raise PreProcessorError(f"Cannot add FOREIGN KEY constraint via MODIFY – use separate ALTER TABLE ADD CONSTRAINT", position=self._col_name.position)
+        #
+        #     self.handle_new_column_constraints(constraint, new_col_type_str, qualified_full)
+        #
+        # # 6. Store the new specification for the executor
+        # self.qualified_new_column_spec = (self.qualified_column, new_col_type_str, self._new_constraints)

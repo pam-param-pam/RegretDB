@@ -6,7 +6,7 @@ from ASTNodes.InsertNode import InsertStmt
 from ASTNodes.SelectNode import SelectStmt
 from ASTNodes.UpdateNode import UpdateStmt
 from Exceptions import RegretDBError
-from PlanNodes.AlterPlanNodes import AlterAdd, AlterRename
+from PlanNodes.AlterPlanNodes import AlterAdd, AlterRename, AlterDrop
 from PlanNodes.CreatePlanNodes import CreateTable
 from PlanNodes.DeletePlanNode import Delete
 from PlanNodes.DropTablePlanNode import DropTable
@@ -86,11 +86,10 @@ class ExecutionPlanner:
         elif isinstance(statement, AlterRenameStmt):
             return AlterRename(table=statement.qualified_table, new_column=statement.qualified_new_column, old_column=statement.qualified_old_column)
 
-        # todo finish these
-        elif isinstance(statement, AlterModifyStmt):
-            pass
-
         elif isinstance(statement, AlterDropStmt):
+            return AlterDrop(table=statement.qualified_table, column=statement.qualified_column, drop_type=statement.drop_type)
+
+        elif isinstance(statement, AlterModifyStmt):
             pass
 
         else:

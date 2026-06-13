@@ -353,6 +353,39 @@ class DataManager:
         if new_column.primary_key:
             table._rebuild_pk_index()
 
+    def drop_column(self, table_name: str, column_name: str, cascade: bool = False) -> None:
+        """Drop a column from the table. If cascade is True, also drop any foreign keys that reference it."""
+        table = self.get_table(table_name)
+
+        if column_name not in table.columns:
+            raise IntegrityError(f"Column '{column_name}' does not exist in table '{table_name}'")
+
+        col = table.columns[column_name]
+        if col.primary_key:
+            raise IntegrityError(f"Cannot drop PRIMARY KEY column '{column_name}'")
+
+        # Find foreign keys that reference this column
+        referencing = self.get_referencing_foreign_keys(table_name, column_name)
+
+        if referencing and not cascade:
+            refs = ', '.join(f"{tbl}.{c}" for tbl, c in referencing)
+            raise IntegrityError(f"Cannot drop column '{column_name}' – referenced by foreign key(s): {refs}. Use CASCADE.")
+
+        # Remove column from schema
+        del table.columns[column_name]
+        table.column_order.remove(column_name)
+
+        # Remove column data from all rows
+        for row in table.data:
+            if column_name in row:
+                del row[column_name]
+
+        # If cascade, drop the referencing foreign keys
+        if cascade:
+            for ref_table_name, ref_col_name in referencing:
+                ref_table = self.get_table(ref_table_name)
+                ref_table.columns[ref_col_name].foreign_key = None
+
     # ------------------------------------------------------------------
     # Query execution helpers (for SELECT)
     # ------------------------------------------------------------------

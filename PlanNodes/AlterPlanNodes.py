@@ -81,12 +81,11 @@ class AlterRename(PlanNode):
     def execute(self):
         data_manager.rename_column(self.table.name, self.old_column.column, self.new_column.column)
 
-# todo finish these
 
 class AlterDrop(PlanNode):
-    def __init__(self, qualified_table, qualified_column, drop_type: str):
-        self.table = qualified_table
-        self.column = qualified_column
+    def __init__(self, table: QualifiedTable, column: QualifiedColumn, drop_type: str):
+        self.table = table
+        self.column = column
         self.drop_type = drop_type
         super().__init__()
 
@@ -94,7 +93,11 @@ class AlterDrop(PlanNode):
         return f"AlterDrop(table={self.table.name}, column={self.column.column})"
 
     def execute(self):
-        pass
+        data_manager.drop_column(
+            self.table.name,
+            self.column.column,
+            cascade=(self.drop_type == 'CASCADE')
+        )
 
 class AlterModify(PlanNode):
     def __init__(self, qualified_table, qualified_column, new_col_type_str, new_column_obj: Column):

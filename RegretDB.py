@@ -29,13 +29,13 @@ class RegretDB:
 # todo enforce FOREIGN key
 # Example usage:
 db_engine = RegretDB()
-sql = "CREATE TABLE users (id NUMBER PRIMARY KEY default 1, name text UNIQUE NOT NULL, isStaff BOOLEAN default false)"
+sql = "CREATE TABLE Users (id NUMBER PRIMARY KEY default 1, name text UNIQUE NOT NULL, isStaff BOOLEAN default false)"
 db_engine.execute_order_66(sql)
 sql = "CREATE TABLE orders (id NUMBER PRIMARY KEY, product text UNIQUE, user_id NUMBER FOREIGN KEY REFERENCES users(id) ON DELETE CASCADE ON DELETE SET NULL)"
 db_engine.execute_order_66(sql)
 
 
-sql = "INSERT INTO users (name, id) VALUES ('Ash', 2, 1)"
+sql = "INSERT INTO users (name, id) VALUES ('Ash', 2)"
 db_engine.execute_order_66(sql)
 sql = "INSERT INTO orders (id, product, user_id) VALUES (1, 'computer', 2)"
 db_engine.execute_order_66(sql)
@@ -56,6 +56,9 @@ sql = "ALTER TABLE users ADD COLUMN email TEXT default '1'"
 db_engine.execute_order_66(sql)
 
 sql = "ALTER TABLE users RENAME COLUMN id TO UID"
+db_engine.execute_order_66(sql)
+
+sql = "ALTER TABLE users DROP COLUMN email RESTRICT"
 db_engine.execute_order_66(sql)
 
 sql = "SELECT * FROM users WHERE name like 'A%'"

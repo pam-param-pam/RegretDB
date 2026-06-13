@@ -58,4 +58,3 @@ class InsertStmt(ASTNode):
                 # Column omitted: must be nullable or have a default
                 if not col.nullable and col.default is None:
                     raise PreProcessorError(f"Column '{col_name}' must be specified (NOT NULL constraint, no default)", position=self._table.position)  # todo fix the position here
-

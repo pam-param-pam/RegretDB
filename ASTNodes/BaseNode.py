@@ -158,7 +158,7 @@ class ASTNode(ABC):
                 )
 
         elif constraint.type == 'FOREIGN KEY':
-            referenced_qualified_col = constraint.arg1  # e.g., "departments.id"
+            referenced_qualified_col = constraint.arg1
             if '.' not in referenced_qualified_col:
                 raise PreProcessorError(f"Invalid FOREIGN KEY syntax: expected 'table.column', got '{referenced_qualified_col}'", position=constraint.position)
             ref_table_name, ref_col_name = self.split_column(referenced_qualified_col)

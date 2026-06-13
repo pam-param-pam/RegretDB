@@ -445,7 +445,7 @@ class Parser:
         # Handle Like
         if self.peek().type == 'LIKE':
             self.advance()
-            self.expect('TEXT')
+            token = self.expect('TEXT')
             right = Literal(type=token.type, value=token.value, position=token.position)
             return Like(primary, right)
 
