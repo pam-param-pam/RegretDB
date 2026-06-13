@@ -14,12 +14,18 @@ class InsertStmt(ASTNode):
         self.qualified_table: Optional[QualifiedTable] = None
         self.qualified_columns: Optional[List[QualifiedColumn]] = None
         self.qualified_values = None
+
+        self._start_pos = self._columns[0].position.offset - 1
+        self._length = self._values[-1].position.offset + self._values[-1].position.length - self._start_pos + 1
+
         super().__init__()
 
     def __repr__(self) -> str:
         return f"InsertStmt(table={self._table}, columns={self._columns}, values={self._values})"
 
     def perform_checks(self) -> None:
+        from LALR import Position
+
         # 1. Validate and get qualified table
         self.qualified_table = self.check_table(self._table.value, self._table.position)
 
@@ -35,7 +41,7 @@ class InsertStmt(ASTNode):
 
         # 3. Check that number of values matches number of columns
         if len(self.qualified_columns) != len(self._values):
-            raise PreProcessorError(f"Columns length({len(self.qualified_columns)}) != values length({len(self._values)})")
+            raise PreProcessorError(f"Columns length({len(self.qualified_columns)}) != Values length({len(self._values)})", position=Position(self._start_pos, self._length))
 
         # 4. Type checking for each (column, value) pair
         for qualified_col, val in zip(self.qualified_columns, self._values):

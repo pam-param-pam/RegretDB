@@ -52,7 +52,7 @@ class IntegrityError(RegretDBError):
         return self.message
 
 class PreProcessorError(RegretDBError):
-    def __init__(self, message, position=None):
+    def __init__(self, message, position):
         self.message = message
         self.position = position
         self.sql_stmt = None

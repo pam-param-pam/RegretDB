@@ -6,7 +6,7 @@ a query planner, an execution engine, and an in‑memory storage layer with cons
 
 The goal was to understand how parsers work and also make the implementation clean and extensible.
 
-I was also inspired by respectfully shity error reporting in oracle during SQL parsing. So I wanted to make a better one!
+I was also inspired by the respectfully shity error reporting in oracle during SQL parsing. So I wanted to make a better one!
 
 ![Error1](./public/img.png)
 ![Error2](./public/img_1.png)

@@ -126,7 +126,6 @@ class ASTNode(ABC):
                 return node.value
             return node
 
-
         return recurse(where_expr)
 
     def check_type(self, column: QualifiedColumn, value: Literal):
@@ -134,9 +133,9 @@ class ASTNode(ABC):
         expected_type = data_manager.get_column_types_for_table(column.table.name)[column.column]
         constraints = data_manager.get_constraint_for_table(column.table.name)[column.column]
 
-        # # Nullability check: column cannot be NULL if any of these constraints exist
-        # if value.value is None and any(c in ('NOT NULL', 'PRIMARY KEY', 'FOREIGN KEY') for c in constraints):
-        #     raise PreProcessorError(f"Column '{column}' cannot be NULL", position=value.position)
+        # Nullability check: column cannot be NULL if any of these constraints exist
+        if value.value is None and any(c in ('NOT NULL', 'PRIMARY KEY', 'FOREIGN KEY') for c in constraints):
+            raise PreProcessorError(f"Column '{column}' cannot be NULL", position=value.position)
 
         if value.type != 'NULL' and value.type != expected_type:
             raise PreProcessorError(f"Expected type: {expected_type} got: {value} in column: '{column}'", position=value.position)

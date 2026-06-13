@@ -35,7 +35,7 @@ sql = "CREATE TABLE orders (id NUMBER PRIMARY KEY, product text UNIQUE, user_id 
 db_engine.execute_order_66(sql)
 
 
-sql = "INSERT INTO users (name, id) VALUES ('Ash', 2)"
+sql = "INSERT INTO users (name, id) VALUES ('Ash', 2, 1)"
 db_engine.execute_order_66(sql)
 sql = "INSERT INTO orders (id, product, user_id) VALUES (1, 'computer', 2)"
 db_engine.execute_order_66(sql)

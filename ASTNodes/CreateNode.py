@@ -30,24 +30,26 @@ class CreateStmt(ASTNode):
 
         new_columns = []
 
-        for col_name_id, col_type_id, constraints in self._raw_column_spec:
-            col_name = col_name_id.value
-            col_type = col_type_id.type
+        for col_identifier, col_type_identifier, constraints in self._raw_column_spec:
+            col_name = col_identifier.value
+            col_type = col_type_identifier.type
 
             if col_name in seen_columns:
-                raise PreProcessorError(f"ERROR: Duplicate column name '{col_name}' in table '{self.qualified_table.name}'")
+                raise PreProcessorError(f" Duplicate column name '{col_name}' in table '{self.qualified_table.name}'", position=col_identifier.position)
             seen_columns.add(col_name)
 
             qualified_col = QualifiedColumn(table=self.qualified_table, column=col_name)
 
+            primary_constraint_pos = 0
             for constraint in constraints:
                 if constraint.type == 'PRIMARY KEY':
+                    primary_constraint_pos = constraint.position
                     primary_key_count += 1
 
                 self.handle_new_column_constraints(constraint, col_type, qualified_col.full_name)
 
             if primary_key_count > 1:
-                raise PreProcessorError(f"Multiple PRIMARY KEY constraints defined for table '{self.qualified_table.name}'")
+                raise PreProcessorError(f"Multiple PRIMARY KEY constraints defined for table '{self.qualified_table.name}'", position=primary_constraint_pos)
 
             new_columns.append((qualified_col, col_type, constraints))
 

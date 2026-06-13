@@ -18,6 +18,15 @@ class Position:
         self.offset = offset
         self.length = length
 
+        if offset < 0:
+            raise ValueError("offset cannot < 0")
+
+        if length < 0:
+            raise ValueError("length cannot < 0")
+
+    def __str__(self):
+        return f"Position[offset={self.offset}, length={self.length}]"
+
 class Token:
     def __init__(self, type, value, offset):
         self.type = type  # e.g. 'IDENTIFIER', 'NUMBER', 'TEXT' or a keyword like 'SELECT'
