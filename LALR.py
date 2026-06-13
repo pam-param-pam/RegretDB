@@ -9,7 +9,7 @@ from ASTNodes.InsertNode import InsertStmt
 from ASTNodes.SelectNode import SelectStmt
 from ASTNodes.UpdateNode import UpdateStmt
 from Exceptions import SQLSyntaxError, SimpleSQLSyntaxError
-from Operators.LogicalOperators import OR, AND, IS_NOT_NULL, IS_NULL, LE, GE, LT, GT, NE, EG, NOT, BOOL
+from Operators.LogicalOperators import OR, AND, IS_NOT_NULL, IS_NULL, LE, GE, LT, GT, NE, EG, NOT, BOOL, Like, Between
 from TokenTypes import Identifier, Literal, ConstraintSpec
 from utility import format_options, parse_boolean
 
@@ -63,8 +63,9 @@ class Tokenizer:
                             'CREATE', 'TABLE',
                             'DROP',
                             'ALTER', 'ADD', 'RENAME', 'MODIFY', 'CASCADE', 'RESTRICT',
-                            'AND', 'OR', 'IS', 'NOT', 'NULL', 'FALSE', 'TRUE',  # operators
-                            'PRIMARY', 'FOREIGN', 'KEY', 'UNIQUE', 'DEFAULT'  # constraints
+                            'AND', 'OR', 'IS', 'NOT', 'NULL', 'FALSE', 'TRUE',
+                            'PRIMARY', 'FOREIGN', 'KEY', 'UNIQUE', 'DEFAULT',
+                            'LIKE', 'BETWEEN'
                         ] + self.column_types
 
     def tokenize(self, sql):
@@ -119,7 +120,7 @@ class Parser:
         self.pos += 1
         return self.peek()
 
-    def expect(self, type_or_value):
+    def expect(self, type_or_value: str):
         """Expect a token of given type or value, and consume it."""
         token = self.peek()
         if token.type == type_or_value or token.value == type_or_value:
@@ -127,6 +128,18 @@ class Parser:
             return token
         else:
             raise SimpleSQLSyntaxError(f"Expected '{type_or_value}' instead found {token}")
+
+    def expect_multiple(self, type_or_values: List[str]):
+        """Expect the next token to match one of the given types or values.
+        Consumes and returns the token, or raises an error with the list of expected options.
+        """
+        token = self.peek()
+        for t_or_v in type_or_values:
+            if token.type == t_or_v or token.value == t_or_v:
+                self.advance()
+                return token
+        expected = ', '.join(repr(x) for x in type_or_values)
+        raise SimpleSQLSyntaxError(f"Expected one of {expected}, found {token}")
 
     def parse(self, sql_stmt):
         self.pos = 0
@@ -154,7 +167,7 @@ class Parser:
             else:
                 raise SimpleSQLSyntaxError(f"Unknown statement start: {token}")
 
-            # 🔒 Check for leftover tokens
+            # Check for leftover tokens
             if self.peek().type != 'EOF':
                 raise SimpleSQLSyntaxError(f"Unexpected token after end of statement: {self.peek()}")
 
@@ -235,7 +248,38 @@ class Parser:
         end = end_token.offset + len(end_token.value)
         return Position(start, end - start)
 
+    def parse_fk_actions(self) -> tuple[str, str]:
+        """
+        Parse optional ON DELETE and ON UPDATE clauses.
+        Returns (on_delete_action, on_update_action) as strings.
+        Defaults are 'RESTRICT' for both.
+        """
+        on_delete = 'RESTRICT'
+        on_update = 'RESTRICT'
+
+        while self.peek().value == 'ON':
+            self.advance()  # consume 'ON'
+            action_type_token = self.expect_multiple(['DELETE', 'UPDATE'])
+            action_type = action_type_token.type
+
+            action_token = self.expect_multiple(['RESTRICT', 'CASCADE', 'SET'])
+            if action_token.value == 'SET':
+                self.expect('NULL')
+                action = 'SET NULL'
+            else:
+                action = action_token.value
+
+            if action_type == 'DELETE':
+                on_delete = action
+            else:
+                on_update = action
+
+        return on_delete, on_update
+
     def parse_constraints(self) -> List[ConstraintSpec]:
+        """Parse one or more column constraints.
+           It will parse nothing without a fail if there are no constraints"""
+
         constraints = []
         while True:
             token = self.peek()
@@ -268,13 +312,19 @@ class Parser:
                 self.expect('(')
                 column = self.parse_column()
                 self.expect(')')
-                end_idx = self.pos
-                pos = self._make_position(start_idx, end_idx)
+
                 if any(c.type == 'FOREIGN KEY' for c in constraints):
                     raise SimpleSQLSyntaxError("Duplicate constraint: FOREIGN KEY", adjust_pos=-2, tokens_num=2)
+
+                on_delete, on_update = self.parse_fk_actions()
+
+                end_idx = self.pos
+                pos = self._make_position(start_idx, end_idx)
                 constraints.append(ConstraintSpec(
                     type='FOREIGN KEY',
                     arg1=f"{table.value}.{column.value}",
+                    on_delete=on_delete,
+                    on_update=on_update,
                     position=pos
                 ))
 
@@ -382,6 +432,21 @@ class Parser:
             else:
                 self.expect('NULL')
                 return IS_NULL(primary)
+
+        # Handle Like
+        if self.peek().type == 'LIKE':
+            self.advance()
+            self.expect('TEXT')
+            right = Literal(type=token.type, value=token.value, position=token.position)
+            return Like(primary, right)
+
+        # Handle between
+        if self.peek().type == 'BETWEEN':
+            self.advance()
+            low = self.parse_primary()
+            self.expect('AND')
+            high = self.parse_primary()
+            return Between(primary, low, high)
 
         # Handle comparison operators
         if self.peek().type == 'OP':
@@ -548,7 +613,7 @@ class Parser:
             col_name = self.parse_column()
             col_type = self.parse_column_type()
             constraints = self.parse_constraints()
-            return AlterAddStmt(table, col_name, col_type, constraints)
+            return AlterAddStmt(table, (col_name, col_type, constraints))
 
         elif action == 'DROP':
             col_name = self.parse_column()

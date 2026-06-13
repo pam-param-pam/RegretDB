@@ -14,7 +14,7 @@ class Update(PlanNode):
         self.assignments = assignments
         self.table = table
 
-    def execute(self) -> int:
+    def execute(self):
         table_obj = data_manager.get_table(self.table.name)
 
         rows = self.source.execute()
@@ -32,7 +32,8 @@ class Update(PlanNode):
             table_obj.update(row_id, updates)
             updated_count += 1
 
-        return updated_count
+        print(f"Updated {updated_count} rows")
+        return None
 
     def __str__(self, level=0) -> str:
         return f"UpdatePlan(\n{indent(level)}assignments={self.assignments},\n{indent(level)}source={self.source.__str__(level + 1)}\n{indent(level - 1)})"

@@ -23,7 +23,7 @@ class ForeignKey:
 @dataclass
 class Column:
     name: str
-    data_type: str          # 'INTEGER', 'TEXT', 'BOOLEAN', 'NULL'
+    data_type: str          # 'NUMBER', 'TEXT', 'BOOLEAN', 'NULL'
     nullable: bool = True
     unique: bool = False
     primary_key: bool = False
@@ -70,7 +70,7 @@ class Table:
             old_pk = old_row.get(pk)
             new_pk = new_values[pk]
             if old_pk != new_pk:
-                self._handle_pk_update(old_row, old_pk, new_pk, row_idx)
+                self._handle_pk_update(old_pk, new_pk, row_idx)
 
         self.data[row_idx] = updated_row
 
@@ -79,7 +79,7 @@ class Table:
         pk = self.get_primary_key()
         pk_val = row.get(pk) if pk else None
         # Cascade or restrict before deletion
-        self._handle_fk_on_delete(row, pk_val)
+        self._handle_fk_on_delete(pk_val)
         # Remove from data and index
         self.data.pop(row_idx)
         if pk and pk_val is not None:
@@ -184,7 +184,7 @@ class Table:
     # ------------------------------------------------------------------
     # Foreign key actions
     # ------------------------------------------------------------------
-    def _handle_fk_on_delete(self, row: Dict[str, Any], pk_val: Any) -> None:
+    def _handle_fk_on_delete(self, pk_val: Any) -> None:
         """Cascade or set null to referencing rows before deleting this row."""
         for child_table_name, child_col in self._get_referencing_tables():
             child_table = data_manager.get_table(child_table_name)
@@ -199,11 +199,9 @@ class Table:
                     elif fk_col.on_delete == FkAction.SET_NULL:
                         child_table.update(child_idx, {child_col: None})
                     else:  # RESTRICT
-                        raise IntegrityError(
-                            f"Foreign key violation: cannot delete row in {self.name} – referenced by {child_table_name}.{child_col}"
-                        )
+                        raise IntegrityError(f"Foreign key violation: cannot delete row in {self.name} – referenced by {child_table_name}.{child_col}" )
 
-    def _handle_pk_update(self, old_row: Dict[str, Any], old_pk: Any, new_pk: Any, row_idx: int) -> None:
+    def _handle_pk_update(self, old_pk: Any, new_pk: Any, row_idx: int) -> None:
         """Cascade or set null to referencing rows when primary key changes."""
         if new_pk in self.pk_index and self.pk_index[new_pk] != row_idx:
             raise IntegrityError(f"Duplicate primary key value '{new_pk}'")
@@ -254,8 +252,6 @@ class DataManager:
         self._tables[name] = Table(name, columns)
 
     def drop_table(self, name: str) -> None:
-        table = self.get_table(name)
-        # Check foreign key dependencies (tables that reference this table)
         for other in self._tables.values():
             for col in other.columns.values():
                 if col.foreign_key and col.foreign_key.ref_table == name:
@@ -297,6 +293,66 @@ class DataManager:
                 deleted += 1
         return deleted
 
+    def rename_column(self, table_name: str, old_name: str, new_name: str) -> None:
+        """Rename a column and cascade the change to all foreign key references"""
+        table = self.get_table(table_name)
+        if new_name in table.columns:
+            raise IntegrityError(f"Column '{new_name}' already exists")
+        if old_name not in table.columns:
+            raise IntegrityError(f"Column '{old_name}' does not exist")
+
+        # 1. Update the column definition itself
+        col = table.columns.pop(old_name)
+        col.name = new_name
+        table.columns[new_name] = col
+
+        # 2. Update column order
+        idx = table.column_order.index(old_name)
+        table.column_order[idx] = new_name
+
+        # 3. Rename the column key in every existing row
+        for row in table.data:
+            if old_name in row:
+                row[new_name] = row.pop(old_name)
+
+        # 4. If this column is a primary key, the pk_index values stay the same; only the column name changes.
+        #    No action needed.
+
+        # 5. Update any foreign key that **references** this column (parent side)
+        for other_table in self._tables.values():
+            for other_col in other_table.columns.values():
+                fk = other_col.foreign_key
+                if fk and fk.ref_table == table_name and fk.ref_column == old_name:
+                    fk.ref_column = new_name
+
+        # 6. If this column itself has a foreign key (child side), update its own `column` field
+        if col.foreign_key:
+            col.foreign_key.column = new_name
+
+    def add_column(self, table_name: str, new_column: Column) -> None:
+        """Add a new column to an existing table. Performs integrity checks."""
+        table = self.get_table(table_name)
+
+        if new_column.name in table.columns:
+            raise IntegrityError(f"Column '{new_column.name}' already exists in table '{table_name}'")
+
+        # Check if adding a NOT NULL column without a default to a non‑empty table
+        if not new_column.nullable and new_column.default is None and table.data:
+            raise IntegrityError(f"Column '{new_column.name}' is NOT NULL and has no DEFAULT – cannot add to non‑empty table '{table_name}'")
+
+        # Add to schema
+        table.columns[new_column.name] = new_column
+        table.column_order.append(new_column.name)
+
+        # Populate existing rows with default value (or None if nullable)
+        default_val = new_column.default
+        for row in table.data:
+            row[new_column.name] = default_val
+
+        # If the column is a primary key (unlikely for ALTER ADD), rebuild index
+        if new_column.primary_key:
+            table._rebuild_pk_index()
+
     # ------------------------------------------------------------------
     # Query execution helpers (for SELECT)
     # ------------------------------------------------------------------
@@ -328,21 +384,24 @@ class DataManager:
         for col in self._tables[table_name].columns.values():
             col_constraints = []
             if not col.nullable:
-                col_constraints.append(self._make_constraint("NOT NULL"))
+                col_constraints.append("NOT NULL")
             if col.unique:
-                col_constraints.append(self._make_constraint("UNIQUE"))
+                col_constraints.append("UNIQUE")
             if col.primary_key:
-                col_constraints.append(self._make_constraint("PRIMARY KEY"))
+                col_constraints.append("PRIMARY KEY")
             if col.foreign_key:
-                fk = col.foreign_key
-                col_constraints.append(self._make_constraint("FOREIGN KEY", arg1=f"{fk.ref_table}.{fk.ref_column}"))
+                col_constraints.append("FOREIGN KEY")
             constraints[col.name] = col_constraints
         return constraints
 
-    @staticmethod
-    def _make_constraint(typ: str, arg1=None):
-        # Simple object to mimic old Constraint class
-        return type("Constraint", (), {"type": typ, "arg1": arg1})()
+    def get_referencing_foreign_keys(self, ref_table: str, ref_column: str) -> List[Tuple[str, str]]:
+        """Return list of (child_table, child_column) that reference the given (ref_table, ref_column)."""
+        result = []
+        for table in self._tables.values():
+            for col_name, col in table.columns.items():
+                if col.foreign_key and col.foreign_key.ref_table == ref_table and col.foreign_key.ref_column == ref_column:
+                    result.append((table.name, col_name))
+        return result
 
 
 # Singleton instance

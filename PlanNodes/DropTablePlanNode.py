@@ -7,5 +7,8 @@ class DropTable(PlanNode):
     def __init__(self, table: QualifiedTable):
         self.table = table
 
+    def __str__(self):
+        return f"DropTable(table={self.table})"
+
     def execute(self):
         data_manager.drop_table(self.table.name)

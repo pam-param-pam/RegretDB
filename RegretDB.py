@@ -22,15 +22,16 @@ class RegretDB:
         statement.set_sql_text(sql_stmt)
         statement.verify()
         plan = self.planner.plan(statement)
+        print(plan)
         plan.execute()
 
 
 # todo enforce FOREIGN key
 # Example usage:
 db_engine = RegretDB()
-sql = "CREATE TABLE users (id NUMBER PRIMARY KEY, name text UNIQUE NOT NULL, isStaff BOOLEAN default false)"
+sql = "CREATE TABLE users (id NUMBER PRIMARY KEY default 1, name text UNIQUE NOT NULL, isStaff BOOLEAN default false)"
 db_engine.execute_order_66(sql)
-sql = "CREATE TABLE orders (id NUMBER PRIMARY KEY, product text UNIQUE, user_id NUMBER FOREIGN KEY REFERENCES users(id))"
+sql = "CREATE TABLE orders (id NUMBER PRIMARY KEY, product text UNIQUE, user_id NUMBER FOREIGN KEY REFERENCES users(id) ON DELETE CASCADE ON DELETE SET NULL)"
 db_engine.execute_order_66(sql)
 
 
@@ -48,17 +49,27 @@ sql = "INSERT INTO users (name, id) VALUES ('Leyla', 5)"
 db_engine.execute_order_66(sql)
 
 
-sql = "SELECT * FROM users WHERE (users.nam1e='Leyla' and id=4) or True"
-# sql = "DROP TABLE users"
-db_engine.execute_order_66(sql)
-sql = "Delete from users where id = 1"
-db_engine.execute_order_66(sql)
-
-# sql = "DROp table users"
+# sql = "UPDATE USERS SET users.id = 11 where name = 'Leyla'"
 # db_engine.execute_order_66(sql)
 
-sql = "SELECT * FROm USERS"
+sql = "ALTER TABLE users ADD COLUMN email TEXT default '1'"
 db_engine.execute_order_66(sql)
+
+sql = "ALTER TABLE users RENAME COLUMN id TO UID"
+db_engine.execute_order_66(sql)
+
+sql = "SELECT * FROM users WHERE name like 'A%'"
+db_engine.execute_order_66(sql)
+
+
+# sql = "Delete from users where id = 2"
+# db_engine.execute_order_66(sql)
+#
+# # sql = "DROp table users"
+# # db_engine.execute_order_66(sql)
+#
+# sql = "SELECT * FROm USERS"
+# db_engine.execute_order_66(sql)
 
 # # sql = "SELECT users.name FROM users, orders WHERE True"
 # sql = "CREATE TABLE orders (id NUMBER PRIMARY KEY, user_id NUMBER FOREIGN KEY REFERENCES users(id))"
@@ -87,10 +98,10 @@ db_engine.execute_order_66(sql)
 # print(data_manager.column_constraints)
 
 # db_engine.execute_order_66(sql)
-sql = "UPDATE orders SET user_id=5 where user_id=2"
-db_engine.execute_order_66(sql)
-sql = "SELECT * FROM orders "
-db_engine.execute_order_66(sql)
+# sql = "UPDATE orders SET user_id=5 where user_id=2"
+# db_engine.execute_order_66(sql)
+# sql = "SELECT * FROM orders "
+# db_engine.execute_order_66(sql)
 
 # sql = "DELETE FROM users where id=5"
 # # sql = "SELECT * FROM orders"

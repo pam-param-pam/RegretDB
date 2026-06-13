@@ -1,4 +1,6 @@
+import re
 from abc import ABC, abstractmethod
+from fnmatch import fnmatchcase
 
 
 class Operator(ABC):
@@ -108,6 +110,7 @@ class EG(Operator):
     def execute(self, row):
         left = self.resolve(self.left, row)
         right = self.resolve(self.right, row)
+
         if left is None or right is None:
             return None
 
@@ -132,3 +135,31 @@ class IS_NULL(Operator):
 class IS_NOT_NULL(Operator):
     def execute(self, row):
         return self.resolve(self.left, row) is not None
+
+
+class Like(Operator):
+    def execute(self, row):
+        value = self.resolve(self.left, row)
+        pattern = self.resolve(self.right, row)
+        if value is None or pattern is None:
+            return None
+
+        # Convert SQL wildcards to fnmatch wildcards
+        translated = str(pattern).replace('%', '*').replace('_', '?')
+        return fnmatchcase(str(value), translated)
+
+
+class Between(Operator):
+    def __init__(self, expr, low, high):
+        super().__init__(left=expr)
+        self.low = low
+        self.high = high
+
+    def execute(self, row):
+        value = self.resolve(self.left, row)
+        low = self.resolve(self.low, row)
+        high = self.resolve(self.high, row)
+
+        if value is None or low is None or high is None:
+            return None
+        return low <= value <= high

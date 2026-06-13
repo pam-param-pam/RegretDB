@@ -106,8 +106,16 @@ class ASTNode(ABC):
 
         def recurse(node):
             if isinstance(node, Operator):
-                node.left = recurse(node.left)
-                node.right = recurse(node.right)
+                if hasattr(node, 'left'):
+                    node.left = recurse(node.left)
+                if hasattr(node, 'right'):
+                    node.right = recurse(node.right)
+                if hasattr(node, 'operand'):
+                    node.operand = recurse(node.operand)
+                if hasattr(node, 'low'):
+                    node.low = recurse(node.low)
+                if hasattr(node, 'high'):
+                    node.high = recurse(node.high)
                 return node
 
             elif isinstance(node, Identifier):
@@ -116,8 +124,8 @@ class ASTNode(ABC):
 
             elif isinstance(node, Literal):
                 return node.value
-
             return node
+
 
         return recurse(where_expr)
 
@@ -126,9 +134,9 @@ class ASTNode(ABC):
         expected_type = data_manager.get_column_types_for_table(column.table.name)[column.column]
         constraints = data_manager.get_constraint_for_table(column.table.name)[column.column]
 
-        # Nullability check
-        if value.value is None and any(keyword in constraint.type for constraint in constraints for keyword in ('NOT NULL', 'PRIMARY KEY', 'FOREIGN KEY')):
-            raise PreProcessorError(f"Column '{column}' cannot be NULL", position=value.position)
+        # # Nullability check: column cannot be NULL if any of these constraints exist
+        # if value.value is None and any(c in ('NOT NULL', 'PRIMARY KEY', 'FOREIGN KEY') for c in constraints):
+        #     raise PreProcessorError(f"Column '{column}' cannot be NULL", position=value.position)
 
         if value.type != 'NULL' and value.type != expected_type:
             raise PreProcessorError(f"Expected type: {expected_type} got: {value} in column: '{column}'", position=value.position)

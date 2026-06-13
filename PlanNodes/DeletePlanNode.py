@@ -8,6 +8,9 @@ class Delete(PlanNode):
         self.source = source
         self.table = table
 
+    def __str__(self):
+        return f"Delete(source={self.source}, table={self.table})"
+
     def execute(self) -> int:
         table_obj = data_manager.get_table(self.table.name)
 

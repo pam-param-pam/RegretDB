@@ -1,22 +1,23 @@
 from typing import List, Tuple
-
 from ASTNodes.BaseNode import QualifiedColumn
 from ASTNodes.Qualified import QualifiedTable
 from PlanNodes.BasePlanNode import PlanNode
-
 from DataManager import data_manager, Column, ForeignKey, FkAction
 from TokenTypes import ConstraintSpec
 
 
 class CreateTable(PlanNode):
-    def __init__(self, table: QualifiedTable, columns: List[Tuple['QualifiedColumn', str, List['ConstraintSpec']]]):
+    def __init__(self, table: QualifiedTable, columns_spec: List[Tuple['QualifiedColumn', str, List['ConstraintSpec']]]):
         self.table = table
-        self.columns = columns
+        self.columns_spec = columns_spec
+
+    def __str__(self):
+        return f"CreateTable(table={self.table}, columns={self.columns_spec})"
 
     def execute(self):
         column_objs = []
 
-        for qcol, col_type, constraints in self.columns:
+        for qcol, col_type, constraints in self.columns_spec:
             col_name = qcol.column
             nullable = True
             unique = False
@@ -36,18 +37,24 @@ class CreateTable(PlanNode):
                 elif constraint_type == 'DEFAULT':
                     default = constraint.arg1
                     default = default.value
-
                 elif constraint_type == 'FOREIGN KEY':
                     ref_qualified = constraint.arg1
                     ref_table, ref_column = ref_qualified.split('.')
 
-                    # For now, actions are RESTRICT
+                    on_delete_str = constraint.on_delete
+                    on_update_str = constraint.on_update
+
+                    fk_action_map = {
+                        'RESTRICT': FkAction.RESTRICT,
+                        'CASCADE': FkAction.CASCADE,
+                        'SET NULL': FkAction.SET_NULL
+                    }
                     foreign_key = ForeignKey(
                         column=col_name,
                         ref_table=ref_table,
                         ref_column=ref_column,
-                        on_delete=FkAction.RESTRICT,
-                        on_update=FkAction.RESTRICT
+                        on_delete=fk_action_map[on_delete_str],
+                        on_update=fk_action_map[on_update_str]
                     )
 
             col = Column(

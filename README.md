@@ -19,7 +19,7 @@ I was also inspired by respectfully shity error reporting in oracle during SQL p
 - **Rich Data Types** – `INTEGER`, `TEXT`, `BOOLEAN`, `NULL`.
 - **Constraints** – `NOT NULL`, `UNIQUE`, `PRIMARY KEY`, `FOREIGN KEY`, `DEFAULT`.
 - **Foreign Key Actions** – `RESTRICT`, `CASCADE`, `SET NULL` (on `DELETE` and `UPDATE`).
-- **WHERE Expressions** – `AND`, `OR`, `NOT`, comparisons (`=`, `!=`, `<`, `>`, `<=`, `>=`), `IS NULL` / `IS NOT NULL`.
+- **WHERE Expressions** – `AND`, `OR`, `NOT`, comparisons (`=`, `!=`, `<`, `>`, `<=`, `>=`), `IS NULL` / `IS NOT NULL`, `Like` and `Between`.
 - **Query Execution** – Table scan, filter, projection, sorting etc.
 - **Error Reporting** – Precise syntax errors with caret underlining and descriptive semantic errors.
-- **In‑Memory Storage** – Row‑based with primary key index, qualified row representation for SELECT.
+- **In‑Memory Storage** 

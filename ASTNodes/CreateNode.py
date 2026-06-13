@@ -12,8 +12,7 @@ class CreateStmt(ASTNode):
         self._raw_column_spec = column_spec
 
         self.qualified_table = None
-        self.qualified_columns = None
-        self.qualified_constraints = None
+        self.qualified_columns_spec = None
 
         super().__init__()
 
@@ -52,4 +51,4 @@ class CreateStmt(ASTNode):
 
             new_columns.append((qualified_col, col_type, constraints))
 
-        self.qualified_columns = new_columns
+        self.qualified_columns_spec = new_columns
