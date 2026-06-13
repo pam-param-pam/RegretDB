@@ -48,9 +48,9 @@ sql = "INSERT INTO users (name, id) VALUES ('Leyla', 5)"
 db_engine.execute_order_66(sql)
 
 
-# sql = "SELECT * FROM users WHERE (user1s.name='Leyla' and id=4) or True"
+sql = "SELECT * FROM users WHERE (users.nam1e='Leyla' and id=4) or True"
 # sql = "DROP TABLE users"
-# db_engine.execute_order_66(sql)
+db_engine.execute_order_66(sql)
 sql = "Delete from users where id = 1"
 db_engine.execute_order_66(sql)
 
