@@ -1,31 +1,30 @@
+from typing import List, Tuple
+
+from ASTNodes.Qualified import QualifiedTable, QualifiedColumn
 from DataManager import data_manager
 from PlanNodes.BasePlanNode import PlanNode
 from utility import indent
 
 
 class TableScan(PlanNode):
-    def __init__(self, table):
-        super().__init__()
+    def __init__(self, table: QualifiedTable):
         self.table = table
 
     def execute(self):
-        return data_manager.get_tables_data(self.table)
+        return data_manager.get_qualified_rows(self.table.name)
 
     def __str__(self, level=0):
-        return f"TableScan('{self.table}')"
+        return f"TableScan({self.table})"
 
 
 class Filter(PlanNode):
     def __init__(self, source, condition):
-        super().__init__()
         self.source = source
         self.condition = condition
 
     def execute(self):
         filtered_rows = []
         for row in self.source.execute():
-            # print(row)
-            # print(self.condition)
             if self.condition.execute(row):
                 filtered_rows.append(row)
         return filtered_rows
@@ -36,7 +35,6 @@ class Filter(PlanNode):
 
 class Visualize(PlanNode):
     def __init__(self, source):
-        super().__init__()
         self.headers = None
         self.data = None
         self.source = source
@@ -44,7 +42,7 @@ class Visualize(PlanNode):
     def execute(self):
         self.data = self.source.execute()
         if self.data:
-            self.headers = list(self.data[0].keys())
+            self.headers = [h for h in self.data[0].keys()]
         else:
             self.headers = []
         self.visualize_table()
@@ -54,9 +52,6 @@ class Visualize(PlanNode):
         return f"Visualize(\n{indent(level)}source={self.source.__str__(level + 1)}\n{indent(level - 1)})"
 
     def visualize_table(self):
-        """
-        Displays the table data in a readable tabular format.
-        """
         if not self.data:
             print("\nNo data to display.")
             return
@@ -64,8 +59,20 @@ class Visualize(PlanNode):
         headers = self.headers
         rows = [[row[h] for h in headers] for row in self.data]
 
-        # Determine column widths
-        col_widths = [len(h) for h in headers]
+        prefixes = []
+        for h in headers:
+            if '.' in h:
+                prefixes.append(h.split('.')[0])
+            else:
+                prefixes.append(None)
+
+        if prefixes and all(p == prefixes[0] for p in prefixes) and prefixes[0] is not None:
+            stripped_headers = [h.split('.', 1)[1] if '.' in h else h for h in headers]
+            display_headers = stripped_headers
+        else:
+            display_headers = headers
+
+        col_widths = [len(str(display_headers[i])) for i in range(len(display_headers))]
         for row in rows:
             for i, val in enumerate(row):
                 col_widths[i] = max(col_widths[i], len(str(val)))
@@ -78,7 +85,7 @@ class Visualize(PlanNode):
 
         print(f"\nResult: ")
         print(divider())
-        print(format_row(headers))
+        print(format_row(display_headers))
         print(divider())
         for row in rows:
             print(format_row(row))
@@ -88,8 +95,7 @@ class Visualize(PlanNode):
 class Project(PlanNode):
     """This plan filters each row from unneeded columns"""
 
-    def __init__(self, source, columns):
-        super().__init__()
+    def __init__(self, source, columns: List[QualifiedColumn]):
         self.source = source
         self.columns = columns
 
@@ -99,7 +105,7 @@ class Project(PlanNode):
         for row in input_rows:
             new_row = {}
             for col in self.columns:
-                new_row[col] = row[col]
+                new_row[col.full_name] = row[col.full_name]
             projected_rows.append(new_row)
 
         return projected_rows
@@ -109,23 +115,20 @@ class Project(PlanNode):
 
 
 class Sort(PlanNode):
-    def __init__(self, source, order_by):
-        super().__init__()
+    def __init__(self, source, order_by: List[Tuple[QualifiedColumn, str]]):
         self.source = source
         self.order_by = order_by
 
     def execute(self):
         rows = self.source.execute()
-
         for column, direction in reversed(self.order_by):
-            reverse = direction.upper() == 'DESC'
+            reverse = (direction.upper() == 'DESC')
 
             def sort_key(row):
-                value = row.get(column)
-                # Put None at the end for ASC, at the start for DESC
-                return (value is None, value) if not reverse else (value is not None, value)
+                val = row.get(column.full_name)
+                return val is None, val
 
-            rows.sort(key=sort_key, reverse=False)  # reverse handled in key
+            rows.sort(key=sort_key, reverse=reverse)
         return rows
 
     def __str__(self, level=0):
@@ -134,12 +137,11 @@ class Sort(PlanNode):
 
 class CrossJoin(PlanNode):
     def __init__(self, left, right):
-        super().__init__()
         self.left = left
         self.right = right
 
     def execute(self):
-        """This is an extremely naive and naive and dangerous approach. I would have made it better if i had the time"""
+        """This is an extremely naive and dangerous approach. I would have made it better if I had the time"""
 
         left_data = self.left.execute()
         right_data = self.right.execute()

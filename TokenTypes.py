@@ -1,7 +1,8 @@
 class Identifier:
-    def __init__(self, type, value):
-        self.type = type  # column, table or NEW_COLUMN for alter rename statement
+    def __init__(self, type, value, position):
+        self.type = type
         self.value = value
+        self.position = position
 
     def __str__(self):
         return f"{self.type}({self.value})"
@@ -10,10 +11,11 @@ class Identifier:
         return self.value
 
 class Literal:
-    def __init__(self, type, value, size=None):
+    def __init__(self, type, value, position, size=None):
         self.type = type  # text, integer, blob or boolean
         self.value = value
         self.size = size  # text and blob require size
+        self.position = position
 
     def __str__(self):
         return f"{self.type}({self.value})"
@@ -21,9 +23,10 @@ class Literal:
     def __repr__(self):
         return f"{self.type}({self.value})"
 
-class Constraint:
-    def __init__(self, type, arg1=None, arg2=None):
+class ConstraintSpec:
+    def __init__(self, type, position, arg1=None, arg2=None):
         self.type = type  # PRIMARY KEY, NOT NULL, FOREIGN KEY, UNIQUE, DEFAULT
+        self.position = position
         self.arg1 = arg1  # Used in default and in foreign key
         self.arg2 = arg2  # Used in foreign key on update
 

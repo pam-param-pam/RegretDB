@@ -1,35 +1,23 @@
+from ASTNodes.Qualified import QualifiedTable
 from DataManager import data_manager
-from Exceptions import ExecutingError
 from PlanNodes.BasePlanNode import PlanNode
 
 
 class Delete(PlanNode):
-    def __init__(self, source, table, where_expr):
-        super().__init__()
+    def __init__(self, source: PlanNode, table: QualifiedTable):
         self.source = source
-        self.table_name = table
-        self.where_expr = where_expr
+        self.table = table
 
-    def execute(self):
-        rows = self.source.execute()
-        deleted_rows = []
+    def execute(self) -> int:
+        table_obj = data_manager.get_table(self.table.name)
 
-        for row in rows:
-            for column, value in row.items():
-                referencing_fks = data_manager.foreign_key_manager.get_foreign_keys_referencing(column)
-                for fk in referencing_fks:
-                    ref_col_full = fk.referencing_column
-                    ref_table, ref_col = ref_col_full.split(".")
-                    referencing_rows = data_manager.get_tables_data(ref_table)
-                    for r in referencing_rows:
-                        if r.get(ref_col_full) == value:
-                            raise ExecutingError(f"Cannot delete row {row}: it is referenced by {r}")
+        rows_to_delete = self.source.execute()
 
-            deleted_rows.append(row)
+        rowids = [row["_rowid"] for row in rows_to_delete]
+        rowids.sort(reverse=True)
 
-        # Actually remove the rows
-        table_data = data_manager.get_tables_data(self.table_name)
-        for row in deleted_rows:
-            table_data.remove(row)
+        # Delete each row by its index
+        for rid in rowids:
+            table_obj.delete(rid)
 
-        return deleted_rows
+        return len(rowids)

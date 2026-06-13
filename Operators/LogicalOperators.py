@@ -110,6 +110,7 @@ class EG(Operator):
         right = self.resolve(self.right, row)
         if left is None or right is None:
             return None
+
         return left == right
 
 
@@ -119,6 +120,7 @@ class NE(Operator):
         right = self.resolve(self.right, row)
         if left is None or right is None:
             return None
+
         return left != right
 
 

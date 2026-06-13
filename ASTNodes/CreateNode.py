@@ -1,46 +1,55 @@
-from ASTNodes.BaseNode import ASTNode
+from typing import List, Tuple
+
+from ASTNodes.BaseNode import ASTNode, QualifiedColumn, QualifiedTable
 from DataManager import data_manager
 from Exceptions import PreProcessorError
+from TokenTypes import Identifier, ConstraintSpec
 
 
 class CreateStmt(ASTNode):
-    def __init__(self, table, columns):
-        self.name = table.value
-        self.columns = columns  # list of (name, type) pairs
+    def __init__(self, table: Identifier, column_spec: List[Tuple[Identifier, Identifier, List[ConstraintSpec]]]):
+        self._table = table
+        self._raw_column_spec = column_spec
+
+        self.qualified_table = None
+        self.qualified_columns = None
+        self.qualified_constraints = None
+
         super().__init__()
 
     def __repr__(self):
-        return f"CreateStmt(table={self.name}, columns={self.columns})"
+        return f"CreateStmt(table={self._table}, columns={self._raw_column_spec})"
 
     def perform_checks(self):
-        # STEP 1. Verify a table doesn't already exist
-        if data_manager.does_table_exist(self.name):
-            raise PreProcessorError(f"ERROR: Table '{self.name}' already exists")
+        if data_manager.does_table_exist(self._table):
+            raise PreProcessorError(f"Table '{self._table}' already exists", position=self._table.position)
+
+        self.qualified_table = QualifiedTable(name=self._table.value)
 
         seen_columns = set()
         primary_key_count = 0
 
-        # STEP 2. Validate columns, constraints and col types
-        for i, (col_name, col_type, constraints) in enumerate(self.columns):
-            # Normalizing from Identifier to a str
-            col_name = col_name.value
+        new_columns = []
 
-            # Checking for column name duplicates
+        for col_name_id, col_type_id, constraints in self._raw_column_spec:
+            col_name = col_name_id.value
+            col_type = col_type_id.type
+
             if col_name in seen_columns:
-                raise PreProcessorError(f"ERROR: Duplicate column name '{col_name}' in table '{self.name}'")
+                raise PreProcessorError(f"ERROR: Duplicate column name '{col_name}' in table '{self.qualified_table.name}'")
             seen_columns.add(col_name)
 
-            # qualifying the name
-            qualified_col_name = f"{self.name}.{col_name}"
+            qualified_col = QualifiedColumn(table=self.qualified_table, column=col_name)
 
-            # Check constraints
             for constraint in constraints:
                 if constraint.type == 'PRIMARY KEY':
                     primary_key_count += 1
 
-                self.handle_new_column_constraints(constraint, col_type, qualified_col_name, self.name)
+                self.handle_new_column_constraints(constraint, col_type, qualified_col.full_name)
 
             if primary_key_count > 1:
-                raise PreProcessorError(f"ERROR: Multiple PRIMARY KEY constraints defined for table '{self.name}'")
+                raise PreProcessorError(f"Multiple PRIMARY KEY constraints defined for table '{self.qualified_table.name}'")
 
-            self.columns[i] = (qualified_col_name, col_type, constraints)
+            new_columns.append((qualified_col, col_type, constraints))
+
+        self.qualified_columns = new_columns

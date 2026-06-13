@@ -19,7 +19,7 @@ class ExecutionPlanner:
         if isinstance(statement, SelectStmt):
 
             # Step 1: TableScans
-            scans = [TableScan(table) for table in statement.tables]
+            scans = [TableScan(table) for table in statement.qualified_tables]
 
             # Step 2: Build cross joins
             plan = scans[0]
@@ -27,25 +27,27 @@ class ExecutionPlanner:
                 plan = CrossJoin(plan, scan)
 
             # Step 3: WHERE clause
-            if statement.where_expr:
-                plan = Filter(plan, statement.where_expr)
+            if statement.qualified_where_expr:
+                plan = Filter(plan, statement.qualified_where_expr)
 
             # Step 4: SELECT columns
-            plan = Project(plan, statement.columns)
+            plan = Project(plan, statement.qualified_columns)
 
-            # Step 5: ORDER BY
-            if statement.order_by:
-                plan = Sort(plan, statement.order_by)
+            # # Step 5: ORDER BY
+            if statement.qualified_order_by:
+                plan = Sort(plan, statement.qualified_order_by)
 
             # Step 6: Visualize
             plan = Visualize(plan)
 
             return plan
+
         elif isinstance(statement, InsertStmt):
-            return Insert(table_name=statement.table, columns=statement.columns, values=statement.values)
+            return Insert(table=statement.qualified_table, columns=statement.qualified_columns, values=statement.qualified_values)
+
         elif isinstance(statement, UpdateStmt):
             # Step 1: Scan the target table
-            scan = TableScan(statement.table)
+            scan = TableScan(statement.qualified_table)
 
             # Step 2: Filter rows using WHERE clause
             plan = scan
@@ -53,34 +55,41 @@ class ExecutionPlanner:
                 plan = Filter(plan, statement.where_expr)
 
             # Step 3: Apply Update operations
-            plan = Update(plan, statement.assignments, table_name=statement.table)
+            plan = Update(plan, statement.qualified_assignments, table=statement.qualified_table)
 
             return plan
+
         elif isinstance(statement, DeleteStmt):
             # Step 1: Scan the target table
-            scan = TableScan(statement.table)
+            scan = TableScan(statement.qualified_table)
 
             # Step 2: Filter rows using WHERE clause
             plan = scan
-            if statement.where_expr:
-                plan = Filter(plan, statement.where_expr)
+            if statement.qualified_where_expr:
+                plan = Filter(plan, statement.qualified_where_expr)
 
             # Step 3: Apply Delete operations
-            plan = Delete(plan, table=statement.table, where_expr=statement.where_expr)
+            plan = Delete(plan, table=statement.qualified_table)
 
             return plan
+
         elif isinstance(statement, CreateStmt):
-            return CreateTable(name=statement.name, columns=statement.columns)
+            return CreateTable(table=statement.qualified_table, columns=statement.qualified_columns)
 
         elif isinstance(statement, DropStmt):
-            return DropTable(table=statement.table)
+            return DropTable(table=statement.qualified_table)
+
         elif isinstance(statement, AlterAddStmt):
             pass
+
         elif isinstance(statement, AlterModifyStmt):
             pass
+
         elif isinstance(statement, AlterRenameStmt):
             pass
+
         elif isinstance(statement, AlterDropStmt):
             pass
+
         else:
             raise RegretDBError(f"Unexpected statement type: {type(statement)}")

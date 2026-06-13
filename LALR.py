@@ -1,4 +1,5 @@
 import re
+from typing import List
 
 from ASTNodes.AlterNodes import AlterAddStmt, AlterDropStmt, AlterRenameStmt, AlterModifyStmt
 from ASTNodes.CreateNode import CreateStmt
@@ -7,17 +8,28 @@ from ASTNodes.DropNode import DropStmt
 from ASTNodes.InsertNode import InsertStmt
 from ASTNodes.SelectNode import SelectStmt
 from ASTNodes.UpdateNode import UpdateStmt
-from Exceptions import SQLSyntaxError, RegretDBError
+from Exceptions import SQLSyntaxError, SimpleSQLSyntaxError
 from Operators.LogicalOperators import OR, AND, IS_NOT_NULL, IS_NULL, LE, GE, LT, GT, NE, EG, NOT, BOOL
-from TokenTypes import Identifier, Literal, Constraint
+from TokenTypes import Identifier, Literal, ConstraintSpec
 from utility import format_options, parse_boolean
+
+class Position:
+    def __init__(self, offset, length):
+        self.offset = offset
+        self.length = length
 
 class Token:
     def __init__(self, type, value, offset):
-        self.type = type  # e.g. 'IDENT', 'NUMBER', 'STRING' or a keyword like 'SELECT'
+        self.type = type  # e.g. 'IDENTIFIER', 'NUMBER', 'TEXT' or a keyword like 'SELECT'
         self.value = value
         self.length = len(value)
         self.offset = offset
+        if self.type == 'TEXT':
+            self.offset += 1
+
+    @property
+    def position(self):
+        return Position(self.offset, self.length)
 
     def __repr__(self):
         return f"Token({self.type}, {self.value!r})"
@@ -37,12 +49,11 @@ class Tokenizer:
             ('DOT', r'\.'),
             ('NUMBER', r'\b\d+(?:\.\d*)?'),  # Integer or decimal
             ('TEXT', r"'([^']*)'"),  # Single-quoted string
-            ('BLOB', r'b\'[0-9A-Fa-f]+\'|x\'[0-9A-Fa-f]+\''),  # BLOB (e.g., b'1A2B')
             ('MISMATCH', r'.'),  # Any other character
         ]
         self.tok_regex = '|'.join(f'(?P<{name}>{pattern})' for name, pattern in token_specification)
         self.column_types = [
-            'TEXT', 'NUMBER', 'BLOB', 'BOOL'
+            'TEXT', 'NUMBER', 'BOOLEAN'
         ]
         self.keywords = [
                             'SELECT', 'FROM', 'WHERE', 'ORDER', 'BY', 'ASC', 'DESC',
@@ -63,7 +74,7 @@ class Tokenizer:
         while pos < len(sql):
             m = get_token(sql, pos)
             if not m:
-                raise SQLSyntaxError(f"Illegal character at position {pos}", adjust_pos=pos)
+                raise SimpleSQLSyntaxError(f"Illegal character at position {pos}", adjust_pos=pos)
             typ = m.lastgroup
             lexeme = m.group(typ)
             if typ == 'TEXT':
@@ -81,7 +92,7 @@ class Tokenizer:
             elif typ != 'MISMATCH':
                 tokens.append(Token(typ, lexeme, pos))
             else:  # MISMATCH
-                raise SQLSyntaxError(f"Unexpected character {lexeme!r} at position {pos}", adjust_pos=pos)
+                raise SimpleSQLSyntaxError(f"Unexpected character {lexeme!r} at position {pos}", adjust_pos=pos)
             pos = m.end()
         return tokens
 
@@ -115,7 +126,7 @@ class Parser:
             self.advance()
             return token
         else:
-            raise SQLSyntaxError(f"Expected '{type_or_value}' instead found {token}")
+            raise SimpleSQLSyntaxError(f"Expected '{type_or_value}' instead found {token}")
 
     def parse(self, sql_stmt):
         self.pos = 0
@@ -141,42 +152,39 @@ class Parser:
             elif token.type == 'ALTER':
                 stmt = self.parse_alter()
             else:
-                raise SQLSyntaxError(f"Unknown statement start: {token}")
+                raise SimpleSQLSyntaxError(f"Unknown statement start: {token}")
 
             # 🔒 Check for leftover tokens
             if self.peek().type != 'EOF':
-                raise SQLSyntaxError(f"Unexpected token after end of statement: {self.peek()}")
+                raise SimpleSQLSyntaxError(f"Unexpected token after end of statement: {self.peek()}")
 
             return stmt
-        except RegretDBError as e:
-            e.sql = self.sql
-            e.tokens = self.tokens
-            e.pos = self.pos
-            raise e
+        except SimpleSQLSyntaxError as e:
+            raise SQLSyntaxError(message=e.message, sql=self.sql, tokens=self.tokens, pos=self.pos, adjust_pos=e.adjust_pos, tokens_num=e.tokens_num)
 
-    def parse_literal(self):
+    def parse_literal(self) -> Literal:
         token = self.peek()
         if token.type == 'NUMBER':
             self.advance()
-            return Literal(type=token.type, value=int(token.value))
+            return Literal(type=token.type, value=int(token.value), position=token.position)
         elif token.type == 'BOOLEAN':
             self.advance()
-            return Literal(type=token.type, value=parse_boolean(token.value))
+            return Literal(type=token.type, value=parse_boolean(token.value), position=token.position)
         elif token.type == 'TEXT':
             self.advance()
-            return Literal(type=token.type, value=token.value)
+            return Literal(type=token.type, value=token.value, position=token.position)
         elif token.type == 'NULL':
             self.advance()
-            return Literal(type=token.type, value=None)
+            return Literal(type=token.type, value=None, position=token.position)
         else:
-            raise SQLSyntaxError(f"Expected literal value, found {token}")
+            raise SimpleSQLSyntaxError(f"Expected literal value, found {token}")
 
-    def parse_column(self, table_name=None):
+    def parse_column(self):
         column = self.parse_identifier('COLUMN')
         return column
 
-    def parse_columns(self):
-        columns = self.parse_identifier_list('COLUMN')
+    def parse_columns(self, allow_partial_dot: bool = False):
+        columns = self.parse_identifier_list('COLUMN', allow_partial_dot)
         return columns
 
     def parse_table(self):
@@ -185,89 +193,113 @@ class Parser:
     def parse_tables(self):
         return self.parse_identifier_list('TABLE')
 
-    def parse_identifier(self, identifier_type):
+    def parse_identifier(self, identifier_type, allow_partial_dot: bool = False):
         """Parses an identifier or qualified identifier like table.column"""
-        identifier = self.expect('IDENTIFIER').value
+        identifier_token = self.expect('IDENTIFIER')
         if self.peek().type == 'DOT':
             self.advance()
-            if self.peek().type == 'STAR':
+            if self.peek().type == "STAR" and allow_partial_dot:
+                token = self.peek()
                 self.advance()
-                return Identifier(type=identifier_type, value=f"{identifier}.*")
-            else:
-                second = self.expect('IDENTIFIER').value
-                return Identifier(type=identifier_type, value=f"{identifier}.{second}")
-        return Identifier(type=identifier_type, value=identifier)
+                position = token.position
+                position.length += 2
+                return Identifier(type=identifier_type, value=token.value, position=position)
 
-    def parse_identifier_list(self, identifier_type):
-        """Parse a comma-separated list of identifiers."""
-        ids = [self.parse_identifier(identifier_type)]
+            column_token = self.expect('IDENTIFIER')
+            length = identifier_token.length+column_token.length+1
+            return Identifier(type=identifier_type, value=f"{identifier_token.value}.{column_token.value}", position=Position(identifier_token.offset, length=length))
+        return Identifier(type=identifier_type, value=identifier_token.value, position=identifier_token.position)
+
+    def parse_identifier_list(self, identifier_type, allow_partial_dot: bool = False):
+        """Parse a comma-separated list of identifiers. At least 1 must exist"""
+        ids = [self.parse_identifier(identifier_type, allow_partial_dot)]
         while self.peek().type == 'COMMA':
             self.advance()
-            ids.append(self.parse_identifier(identifier_type))
+            ids.append(self.parse_identifier(identifier_type, allow_partial_dot))
         return ids
 
-    def parse_value_list(self):
+    def parse_value_list(self) -> List[Literal]:
         """Parse a comma-separated list of values"""
-        values = []
-        literal = self.parse_literal()
-        values.append(literal)
+        literals = [self.parse_literal()]
 
         while self.peek().type == 'COMMA':
             self.advance()
-            literal = self.parse_literal()
-            values.append(literal)
-        return values
+            literals.append(self.parse_literal())
+        return literals
 
-    def parse_constraints(self):
-        """Parse one or more column constraints.
-           It will parse nothing without a fail if there are no constraints"""
+    def _make_position(self, start_idx: int, end_idx: int) -> Position:
+        """Create a Position that spans from token start_idx to token end_idx-1."""
+        start_token = self.tokens[start_idx]
+        end_token = self.tokens[end_idx - 1]
+        start = start_token.offset
+        end = end_token.offset + len(end_token.value)
+        return Position(start, end - start)
+
+    def parse_constraints(self) -> List[ConstraintSpec]:
         constraints = []
         while True:
             token = self.peek()
-
             if token.type == 'NOT':
+                start_idx = self.pos
                 self.advance()
                 self.expect('NULL')
-                if any(constraint.type == 'NOT NULL' for constraint in constraints):
-                    raise SQLSyntaxError(f"Duplicate constraint: NOT NULL", adjust_pos=-2)
-                constraints.append(Constraint(type='NOT NULL'))
+                end_idx = self.pos
+                pos = self._make_position(start_idx, end_idx)
+                if any(c.type == 'NOT NULL' for c in constraints):
+                    raise SimpleSQLSyntaxError("Duplicate constraint: NOT NULL", adjust_pos=-2, tokens_num=2)
+                constraints.append(ConstraintSpec(type='NOT NULL', position=pos))
 
             elif token.type == 'PRIMARY':
+                start_idx = self.pos
                 self.advance()
                 self.expect('KEY')
-                if any(constraint.type == 'PRIMARY KEY' for constraint in constraints):
-                    raise SQLSyntaxError(f"Duplicate constraint: PRIMARY KEY", adjust_pos=-2)
-                constraints.append(Constraint(type='PRIMARY KEY'))
+                end_idx = self.pos
+                pos = self._make_position(start_idx, end_idx)
+                if any(c.type == 'PRIMARY KEY' for c in constraints):
+                    raise SimpleSQLSyntaxError("Duplicate constraint: PRIMARY KEY", adjust_pos=-2, tokens_num=2)
+                constraints.append(ConstraintSpec(type='PRIMARY KEY', position=pos))
 
             elif token.type == 'FOREIGN':
+                start_idx = self.pos
                 self.advance()
                 self.expect('KEY')
-                if any(constraint.type == 'FOREIGN KEY' for constraint in constraints):
-                    raise SQLSyntaxError(f"Duplicate constraint: FOREIGN KEY", adjust_pos=-2)
-
                 self.expect('REFERENCES')
                 table = self.parse_table()
                 self.expect('(')
                 column = self.parse_column()
                 self.expect(')')
-                # TODO ON UPDATE CASCADE/RESTRICT
-                constraints.append(Constraint(type='FOREIGN KEY', arg1=f"{table.value}.{column.value}"))
+                end_idx = self.pos
+                pos = self._make_position(start_idx, end_idx)
+                if any(c.type == 'FOREIGN KEY' for c in constraints):
+                    raise SimpleSQLSyntaxError("Duplicate constraint: FOREIGN KEY", adjust_pos=-2, tokens_num=2)
+                constraints.append(ConstraintSpec(
+                    type='FOREIGN KEY',
+                    arg1=f"{table.value}.{column.value}",
+                    position=pos
+                ))
 
             elif token.type == 'UNIQUE':
+                start_idx = self.pos
                 self.advance()
-                if any(constraint.type == 'UNIQUE' for constraint in constraints):
-                    raise SQLSyntaxError(f"Duplicate constraint: UNIQUE", adjust_pos=-1)
-                constraints.append(Constraint(type='UNIQUE'))
+                end_idx = self.pos
+                pos = self._make_position(start_idx, end_idx)
+                if any(c.type == 'UNIQUE' for c in constraints):
+                    raise SimpleSQLSyntaxError("Duplicate constraint: UNIQUE", adjust_pos=-1)
+                constraints.append(ConstraintSpec(type='UNIQUE', position=pos))
 
             elif token.type == 'DEFAULT':
+                start_idx = self.pos
                 self.advance()
                 default_value = self.parse_literal()
-                if any(constraint.type == 'DEFAULT' for constraint in constraints):
-                    raise SQLSyntaxError(f"Duplicate DEFAULT constraint", adjust_pos=-1)
-                constraints.append(Constraint(type='DEFAULT', arg1=default_value))
+                end_idx = self.pos
+                pos = self._make_position(start_idx, end_idx)
+                if any(c.type == 'DEFAULT' for c in constraints):
+                    raise SimpleSQLSyntaxError("Duplicate DEFAULT constraint", adjust_pos=-1)
+                constraints.append(ConstraintSpec(type='DEFAULT', arg1=default_value, position=pos))
 
             else:
                 break
+
         return constraints
 
     def parse_order_by(self):
@@ -278,7 +310,7 @@ class Parser:
             column = self.parse_column()
             peeked = self.peek()
             if peeked.type not in ('ASC', 'DESC'):
-                raise SQLSyntaxError(f"Expected 'ASC' or 'DESC', found {self.peek().type}")
+                raise SimpleSQLSyntaxError(f"Expected 'ASC' or 'DESC', found {self.peek().type}")
             direction = peeked.type
             self.advance()
             orderings.append((column, direction))
@@ -302,25 +334,78 @@ class Parser:
 
         return assignments
 
-    def parse_column_type(self):
+    def parse_column_type(self) -> Identifier:
         """Parses column type without size"""
         peeked = self.peek()
         if peeked.type in self.tokenizer.column_types:
             self.advance()
-            return peeked.type
-        raise SQLSyntaxError(f"Expected column type ({format_options(self.tokenizer.column_types)}), found {peeked}")
+            return peeked
+        raise SimpleSQLSyntaxError(f"Expected column type ({format_options(self.tokenizer.column_types)}), found {peeked}")
 
     def parse_expression(self):
         """not > and > or"""
         return self.parse_or()  # lowest precedence
 
-    def parse_or(self):
-        left = self.parse_and()
-        while self.peek().type == 'OR':
+    def parse_primary(self):
+        """Parse a literal, column, or parenthesized expression."""
+        if self.peek().type == 'LPAREN':
             self.advance()
-            right = self.parse_and()
-            left = OR(left, right)
-        return left
+            expr = self.parse_expression()
+            self.expect(')')
+            return expr
+        if self.peek().type in ('NUMBER', 'TEXT', 'NULL', 'BOOLEAN'):
+            return self.parse_literal()
+        return self.parse_column()
+
+    def parse_comparison(self):
+        # Handle parenthesized expression
+        if self.peek().type == 'LPAREN':
+            self.advance()
+            expr = self.parse_expression()
+            self.expect(')')
+            return expr
+
+        # Parse a primary: literal or column
+        token = self.peek()
+        if token.type in ('NUMBER', 'TEXT', 'NULL', 'BOOLEAN'):
+            primary = self.parse_literal()
+        else:
+            primary = self.parse_column()
+
+        # Handle IS NULL / IS NOT NULL
+        if self.peek().type == 'IS':
+            self.advance()
+            if self.peek().type == 'NOT':
+                self.advance()
+                self.expect('NULL')
+                return IS_NOT_NULL(primary)
+            else:
+                self.expect('NULL')
+                return IS_NULL(primary)
+
+        # Handle comparison operators
+        if self.peek().type == 'OP':
+            op = self.peek().value
+            op_class = self.OPERATOR_MAP.get(op)
+            if not op_class:
+                raise SimpleSQLSyntaxError(f"Unknown operator '{op}'")
+            self.advance()
+            right = self.parse_primary()  # right side is a primary (no AND/OR)
+            return op_class(primary, right)
+
+        # Only BOOLEAN literals are allowed as standalone
+        if isinstance(primary, Literal) and primary.type == 'BOOLEAN':
+            return BOOL(primary.value)
+
+        # Everything else (column, number, text, null) is rejected
+        raise SimpleSQLSyntaxError(f"Invalid expression in WHERE clause: {primary}. Expected Bool like value")
+
+    def parse_not(self):
+        if self.peek().type == 'NOT':
+            self.advance()
+            operand = self.parse_not()  # allow nested NOT
+            return NOT(operand)
+        return self.parse_comparison()
 
     def parse_and(self):
         left = self.parse_not()
@@ -330,59 +415,13 @@ class Parser:
             left = AND(left, right)
         return left
 
-    def parse_not(self):
-        if self.peek().type == 'NOT':
+    def parse_or(self):
+        left = self.parse_and()
+        while self.peek().type == 'OR':
             self.advance()
-            operand = self.parse_not()
-            return NOT(operand)
-        return self.parse_comparison()
-
-    def parse_comparison(self):
-        if self.peek().type == 'LPAREN':
-            self.advance()
-            expr = self.parse_expression()
-            self.expect(')')
-            return expr
-
-        token = self.peek()
-
-        if token.type == 'BOOLEAN':
-            self.advance()
-            return BOOL(token.value)
-
-        left = self.parse_column()
-        peeked = self.peek()
-
-        if peeked.type == 'IS':
-            self.advance()
-            if self.peek().type == 'NOT':
-                self.advance()
-                self.expect('NULL')
-                return IS_NOT_NULL(left)
-            else:
-                self.expect('NULL')
-                return IS_NULL(left)
-
-        if peeked.type != 'OP':
-            raise SQLSyntaxError(f"Expected comparison operator, found {peeked}")
-
-        op = peeked.value
-        op_class = self.OPERATOR_MAP.get(op)
-        if not op_class:
-            raise SQLSyntaxError(f"Unknown operator '{op}'")
-
-        self.advance()
-
-        token = self.peek()
-        try:
-            right = self.parse_literal()
-        except SQLSyntaxError:
-            if token.type == 'IDENTIFIER':
-                right = self.parse_column()
-            else:
-                raise SQLSyntaxError(f"Expected identifier or literal after operator, found {token}")
-
-        return op_class(left, right)
+            right = self.parse_and()
+            left = OR(left, right)
+        return left
 
     # ===========================================
     # ------------ Statement parsers ------------
@@ -392,10 +431,11 @@ class Parser:
         """SELECT <columns> FROM <table> [WHERE <expr>] [ORDER BY <column> ASC|DESC]"""
         self.expect('SELECT')
         if self.peek().type == 'STAR':
+            token = self.peek()
+            columns = [Identifier(type='COLUMN', value="*", position=token.position)]
             self.advance()
-            columns = [Identifier(type='COLUMN', value="*")]
         else:
-            columns = self.parse_columns()
+            columns = self.parse_columns(allow_partial_dot=True)
 
         self.expect('FROM')
         tables = self.parse_tables()
@@ -463,20 +503,20 @@ class Parser:
         table = self.parse_table()
         self.expect('(')
 
-        columns = []
+        columns_spec = []
         while True:
             col_name = self.parse_column()
             col_type = self.parse_column_type()
 
             constraints = self.parse_constraints()
-            columns.append((col_name, col_type, constraints))
+            columns_spec.append((col_name, col_type, constraints))
 
             if self.peek().type != 'COMMA':
                 break
             self.advance()  # skip comma
 
         self.expect(')')
-        return CreateStmt(table, columns)
+        return CreateStmt(table, columns_spec)
 
     def parse_drop(self):
         # drop index not supported
@@ -498,7 +538,7 @@ class Parser:
         table = self.parse_table()
         expected = ['ADD', 'DROP', 'RENAME', 'MODIFY']
         if self.peek().type not in expected:
-            raise SQLSyntaxError(f"Expected {format_options(expected)}, found {self.peek()}")
+            raise SimpleSQLSyntaxError(f"Expected {format_options(expected)}, found {self.peek()}")
 
         action = self.peek().type
         self.advance()
@@ -530,6 +570,8 @@ class Parser:
             new_col_type = self.parse_column_type()
             new_constraints = self.parse_constraints()
             return AlterModifyStmt(table, col_name, new_col_type, new_constraints)
+
+        raise ValueError("Shouldn't reach here")
 
 # sql = "SELECT users.id, orders.amount FR1OM users WHERE (orders.amount > 100 and ala = 'name') or (orders.amount > 200 and ala = 'name1') ORDER BY orders.amount ASC, orders.name DESC"
 # sql = "INSERT INTO Customers (CustomerName, ContactName, Address, City, Country) VALUES ('Cardinal', 'Tom B. Erichsen', 'Skagen 21', 'Stavanger', '4006', 'Norway')"

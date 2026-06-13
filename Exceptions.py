@@ -14,17 +14,28 @@ class RegretDBError(Exception):
             return f"{base} (Token: {self.token}, Line: {self.line})"
         return base
 
+class SimpleSQLSyntaxError(RegretDBError):
+    def __init__(self, message, adjust_pos=0, tokens_num=1):
+        self.message = message
+        self.adjust_pos = adjust_pos
+        self.tokens_num = tokens_num
+        super().__init__(message)
+
+    def __str__(self):
+        return self.message
+
 class SQLSyntaxError(RegretDBError):
-    def __init__(self, message, sql=None, tokens=None, pos=None, adjust_pos=None):
+    def __init__(self, message, sql, tokens, pos, adjust_pos=0, tokens_num=1):
         self.message = message
         self.sql = sql
         self.tokens = tokens
         self.pos = pos
-        self.adjust_pos = adjust_pos or 0
+        self.adjust_pos = adjust_pos
+        self.tokens_num = tokens_num
         super().__init__(message)
 
     def __str__(self):
-        return self.message + "\n" + get_pretty_error(self.sql, self.tokens, self.pos, self.adjust_pos)
+        return self.message + "\n" + get_pretty_error(self.sql, self.tokens, self.pos, self.adjust_pos, self.tokens_num)
 
 class ExecutingError(RegretDBError):
     def __init__(self, message):
@@ -41,44 +52,15 @@ class IntegrityError(RegretDBError):
         return self.message
 
 class PreProcessorError(RegretDBError):
-    def __init__(self, message, word=None, sql_stmt=None):
+    def __init__(self, message, position=None):
         self.message = message
-        self.word = word
-        self.sql_stmt = sql_stmt
+        self.position = position
+        self.sql_stmt = None
         super().__init__(message)
 
     def __str__(self):
-        if not self.word:
+        if not self.position or not self.sql_stmt:
             return self.message
-        underline = [' ' for _ in self.sql_stmt]
-        word_len = len(self.word)
-        idx = 0
+        return self.message + "\n" + self.sql_stmt + "\n" + self.position.offset * " " + "^" * self.position.length
 
-        while idx < len(self.sql_stmt):
-            idx = self.sql_stmt.find(self.word, idx)
-            if idx == -1:
-                break
 
-            # Characters before and after the match
-            before = self.sql_stmt[idx - 1] if idx > 0 else ''
-            after = self.sql_stmt[idx + word_len] if idx + word_len < len(self.sql_stmt) else ''
-
-            # Skip if surrounded by single quotes (string literal)
-            if before == "'" and after == "'":
-                idx += word_len
-                continue
-
-            # Skip if part of a longer identifier or dotted identifier
-            if before in "._" or before.isalnum() or after in "._" or after.isalnum():
-                idx += word_len
-                continue
-
-            # Mark the word with ^
-            for i in range(word_len):
-                if idx + i < len(underline):
-                    underline[idx + i] = '^'
-
-            idx += word_len
-
-        underline_str = ''.join(underline)
-        return f"{self.message}\n{self.sql_stmt}\n{underline_str}"
